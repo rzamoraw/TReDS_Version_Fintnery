@@ -37,13 +37,13 @@
         <td>
             {% if factura.estado_dte == "Confirmación solicitada al pagador" %}
                 <form method="post" action="/pagador/editar-vencimiento/{{ factura.id }}">
-                    <input type="date" name="nueva_fecha_vencimiento" value="{{ factura.fecha_vencimiento }}">
-                    <button type="submit" class="btn btn-warning btn-sm">Actualizar</button>
-                </form>
-            {% else %}
-                {{ factura.fecha_vencimiento.strftime('%Y-%m-%d') if factura.fecha_vencimiento else 'Sin fecha' }}
-            {% endif %}
-        </td>
+                <input type="date" name="nueva_fecha_vencimiento" value="{{ factura.fecha_vencimiento }}">
+                <button type="submit" class="btn btn-warning btn-sm">Actualizar</button>
+            </form>
+        {% else %}
+            {{ factura.fecha_vencimiento.strftime('%Y-%m-%d') if factura.fecha_vencimiento else "Sin fecha" }}
+        {% endif %}
+    </td>
         <td>{{ factura.estado_dte }}</td>
         <td>
             {% if factura.estado_dte == "Confirmación solicitada al pagador" %}
