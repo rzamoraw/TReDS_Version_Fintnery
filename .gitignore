@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Entornos virtuales
+env/
+venv/
+.venv/
+
+# Archivos de base de datos
+*.db
+*.sqlite3
+
+# Archivos de configuración sensible
+.env
+
+# Archivos ZIP y XML subidos
+*.zip
+*.xml
+uploads/
+
+# Archivos de sistema (MacOS y otros)
+.DS_Store
+Thumbs.db
+
+# Logs y caché
+*.log
+*.bak
+.cache/
