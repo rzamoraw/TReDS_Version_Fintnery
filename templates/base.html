@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Fintnery Platform{% endblock %}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <header class="main-header">
+        <img src="/static/LogoFIntneryWeb.svg" alt="Fintnery" class="logo">
+        <h1 class="titulo-principal">Plataforma TReDS Chile</h1>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2025 Fintnery | Plataforma ética de confirming</p>
+    </footer>
+</body>
+</html>

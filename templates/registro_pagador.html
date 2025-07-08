@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Registro Pagador{% endblock %}
+
+{% block content %}
+<h2>Registro de Pagador</h2>
+<form method="post" action="/pagador/registro">
+    <label>Nombre:</label>
+    <input type="text" name="nombre" required><br>
+
+    <label>RUT:</label>
+    <input type="text" name="rut" required><br>
+
+    <label>Usuario:</label>
+    <input type="text" name="usuario" required><br>
+
+    <label>Contraseña:</label>
+    <input type="password" name="clave" required><br>
+
+    <button type="submit">Registrarse</button>
+</form>
+<p>¿Ya tienes cuenta? <a href="/pagador/login">Inicia sesión</a></p>
+{% endblock %}
+

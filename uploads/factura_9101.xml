@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<DTE version="1.0" ID="F9101">
+  <Documento>
+    <Encabezado>
+      <IdDoc>
+        <TipoDTE>33</TipoDTE>
+        <Folio>9101</Folio>
+        <FchEmis>2025-07-03</FchEmis>
+        <FchVenc>2025-08-10</FchVenc>
+      </IdDoc>
+      <Emisor>
+        <RUTEmisor>76000010-1</RUTEmisor>
+        <RznSoc>Proveedor Demo SpA</RznSoc>
+      </Emisor>
+      <Receptor>
+        <RUTRecep>60910000-K</RUTRecep>
+        <RznSocRecep>Pagador Demo Ltda.</RznSocRecep>
+      </Receptor>
+      <Totales>
+        <MntTotal>1375000</MntTotal>
+      </Totales>
+    </Encabezado>
+  </Documento>
+</DTE>

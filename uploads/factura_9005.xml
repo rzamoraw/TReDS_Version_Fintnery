@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Factura>
+    <Folio>9005</Folio>
+    <RUTEmisor>ProveedorDemo</RUTEmisor>
+    <RazonSocialEmisor>Proveedor Demo Spa</RazonSocialEmisor>
+    <RUTReceptor>76123456-7</RUTReceptor>
+    <RazonSocialReceptor>Pagador Ejemplo Ltda</RazonSocialReceptor>
+    <Monto>1000000</Monto>
+    <FechaEmision>2025-07-03</FechaEmision>
+    <FechaVencimiento>2025-08-07</FechaVencimiento>
+</Factura>

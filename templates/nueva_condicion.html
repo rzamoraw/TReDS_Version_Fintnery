@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2>Nueva Condición por Pagador</h2>
+    <form method="post" action="/financiador/condiciones/nueva">
+        <div class="mb-3">
+            <label>RUT Pagador</label>
+            <input type="text" name="rut_pagador" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label>Nombre Pagador</label>
+            <input type="text" name="nombre_pagador" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label>Spread (%)</label>
+            <input type="number" name="spread" step="0.01" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label>Días de Anticipación</label>
+            <input type="number" name="dias_anticipacion" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label>Comisiones ($)</label>
+            <input type="number" name="comisiones" step="0.01" class="form-control" required>
+        </div>
+        <button type="submit" class="btn btn-success">Guardar</button>
+        <a href="/financiador/condiciones" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %}
