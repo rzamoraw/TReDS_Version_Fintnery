@@ -115,7 +115,7 @@ def editar_vencimiento_pagador(
         factura.fecha_vencimiento = datetime.strptime(nueva_fecha_vencimiento, "%Y-%m-%d").date()
         db.commit()
 
-    return RedirectResponse(url="/pagador/facturas-a-confirmar", status_code=303)
+    return RedirectResponse(url="/pagador/facturas?msg=fecha_actualizada", status_code=303)
 
 # NUEVO: Confirmar factura
 @router.post("/confirmar-factura/{factura_id}")
