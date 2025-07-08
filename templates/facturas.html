@@ -124,7 +124,22 @@
                 <button type="submit" class="btn btn-sm btn-warning ms-2">Solicitar Confirmación</button>
             </form>
             {% endif %}
+        <td>
+            {{ factura.estado_dte }}
+            {% if factura.estado_dte == "Confirmada por pagador" %}
+                <form method="post" action="/proveedor/solicitar_confirming/{{ factura.id }}" style="display:inline">
+                    <button type="submit" class="btn btn-sm btn-primary">Solicitar Confirming</button>
+                </form>
+                <form method="post" action="/proveedor/rechazar_vencimiento/{{ factura.id }}" style="display:inline">
+                <button type="submit" class="btn btn-sm btn-danger">Rechazar Vencimiento</button>
+                </form>
+            {% elif factura.estado_dte == "Vencimiento rechazado por proveedor" %}
+            <span class="text-danger">Rechazado</span>
+            {% elif factura.estado_dte == "En confirming" %}
+                <span class="text-success">Confirming solicitado</span>
+            {% endif %}
         </td>
+
     </tr>
     {% else %}
     <tr>

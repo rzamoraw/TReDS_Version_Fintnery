@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Form, Depends, UploadFile
+from fastapi import APIRouter, Request, Form, Depends, UploadFile, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -208,3 +208,39 @@ def cargar_factura_manual(
 
     return RedirectResponse(url="/proveedor/facturas", status_code=303)
 
+# NUEVA: Rechazar vencimiento propuesto por el pagador
+@router.post("/rechazar-vencimiento/{factura_id}")
+def rechazar_vencimiento(factura_id: int, request: Request, db: Session = Depends(get_db)):
+    proveedor_id = request.session.get("proveedor_id")
+    if not proveedor_id:
+        return RedirectResponse(url="/proveedor/login", status_code=303)
+
+    factura = db.query(FacturaDB).filter(FacturaDB.id == factura_id).first()
+    if factura and factura.estado_dte == "Confirmada por pagador":
+        factura.estado_dte = "Vencimiento rechazado por proveedor"
+        db.commit()
+
+    return RedirectResponse(url="/proveedor/facturas?msg=vencimiento_rechazado", status_code=303)
+
+# Ruta para solicitar confirming
+@router.post("/proveedor/solicitar_confirming/{factura_id}")
+def solicitar_confirming(factura_id: int):
+    db = SessionLocal()
+    factura = db.query(FacturaDB).filter(FacturaDB.id == factura_id).first()
+    if factura and factura.estado_dte == "Confirmada por pagador":
+        factura.estado_dte = "En confirming"
+        factura.confirming_solicitado = True
+        db.commit()
+    db.close()
+    return RedirectResponse(url="/proveedor/facturas", status_code=status.HTTP_303_SEE_OTHER)
+
+# Ruta para rechazar vencimiento
+@router.post("/proveedor/rechazar_vencimiento/{factura_id}")
+def rechazar_vencimiento(factura_id: int):
+    db = SessionLocal()
+    factura = db.query(FacturaDB).filter(FacturaDB.id == factura_id).first()
+    if factura and factura.estado_dte == "Confirmada por pagador":
+        factura.estado_dte = "Vencimiento rechazado por proveedor"
+        db.commit()
+    db.close()
+    return RedirectResponse(url="/proveedor/facturas", status_code=status.HTTP_303_SEE_OTHER)
