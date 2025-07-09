@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Marketplace General{% endblock %}
+
+{% block content %}
+<h2>Marketplace de Facturas</h2>
+
+{% if facturas %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>Folio</th>
+            <th>Emisor</th>
+            <th>Receptor</th>
+            <th>Monto</th>
+            <th>Fecha Emisión</th>
+            <th>Fecha Vencimiento</th>
+            <th>Estado</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for f in facturas %}
+        <tr>
+            <td>{{ f.folio }}</td>
+            <td>{{ f.razon_social_emisor }}</td>
+            <td>{{ f.razon_social_receptor }}</td>
+            <td>${{ "{:,.0f}".format(f.monto) }}</td>
+            <td>{{ f.fecha_emision }}</td>
+            <td>{{ f.fecha_vencimiento }}</td>
+            <td>{{ f.estado_dte }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="text-muted">No hay facturas disponibles actualmente.</p>
+{% endif %}
+{% endblock %}

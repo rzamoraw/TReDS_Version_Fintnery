@@ -5,6 +5,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from database import engine, Base
 from routers import proveedor, pagador, financiador, auth, configuracion, facturas_proveedor, admin
+from routers import marketplace
 
 app = FastAPI()
 
@@ -27,6 +28,7 @@ app.include_router(configuracion.router, prefix="/configuracion", tags=["Configu
 app.include_router(facturas_proveedor.router, prefix="/proveedor", tags=["Facturas"])
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(marketplace.router)
 
 
 # Ruta principal de prueba (landing temporal)

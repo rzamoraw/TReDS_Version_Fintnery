@@ -6,22 +6,32 @@
         <h2>Mis Facturas</h2>
 
         {% if errores %}
-<div class="alert alert-danger mt-3">
-    <ul>
-    {% for error in errores %}
-        <li>{{ error }}</li>
-    {% endfor %}
-    </ul>
-</div>
-{% endif %}
-        
-    {% if request.query_params.get('msg') == 'fecha_ok' %}
-<div class="alert alert-success alert-dismissible fade show" role="alert">
-    Fecha de vencimiento actualizada correctamente.
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-</div>
-{% endif %}    
-        
+        <div class="alert alert-danger mt-3">
+            <ul>
+            {% for error in errores %}
+                <li>{{ error }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if request.query_params.get('msg') == 'fecha_ok' %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            Fecha de vencimiento actualizada correctamente.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+        </div>
+        {% elif request.query_params.get('msg') == 'confirming_ok' %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            Confirming solicitado exitosamente.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+        </div>
+        {% elif request.query_params.get('msg') == 'rechazo_ok' %}
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            Nuevo vencimiento rechazado por el proveedor.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+        </div>
+        {% endif %}
+
         <a href="/proveedor/logout" class="btn btn-outline-secondary">Cerrar sesión</a>
     </div>
 
@@ -111,42 +121,39 @@
             </thead>
             <tbody>
                 {% for factura in facturas %}
-    <tr>
-        <td>{{ factura.folio }}</td>
-        <td>{{ factura.razon_social_receptor }}</td>
-        <td>${{ '{:,.0f}'.format(factura.monto) }}</td>
-        <td>{{ factura.fecha_emision }}</td>
-        <td>{{ factura.fecha_vencimiento }}</td>
-        <td>
-            {{ factura.estado_dte }}
-            {% if factura.estado_dte == "Cargada" %}
-            <form method="get" action="/proveedor/solicitar_confirmacion/{{ factura.id }}" class="d-inline">
-                <button type="submit" class="btn btn-sm btn-warning ms-2">Solicitar Confirmación</button>
-            </form>
-            {% endif %}
-        <td>
-            {{ factura.estado_dte }}
-            {% if factura.estado_dte == "Confirmada por pagador" %}
-                <form method="post" action="/proveedor/solicitar_confirming/{{ factura.id }}" style="display:inline">
-                    <button type="submit" class="btn btn-sm btn-primary">Solicitar Confirming</button>
-                </form>
-                <form method="post" action="/proveedor/rechazar_vencimiento/{{ factura.id }}" style="display:inline">
-                <button type="submit" class="btn btn-sm btn-danger">Rechazar Vencimiento</button>
-                </form>
-            {% elif factura.estado_dte == "Vencimiento rechazado por proveedor" %}
-            <span class="text-danger">Rechazado</span>
-            {% elif factura.estado_dte == "En confirming" %}
-                <span class="text-success">Confirming solicitado</span>
-            {% endif %}
-        </td>
+                <tr>
+                    <td>{{ factura.folio }}</td>
+                    <td>{{ factura.razon_social_receptor }}</td>
+                    <td>${{ '{:,.0f}'.format(factura.monto) }}</td>
+                    <td>{{ factura.fecha_emision }}</td>
+                    <td>{{ factura.fecha_vencimiento }}</td>
+                    <td>
+                        {{ factura.estado_dte }}
 
-    </tr>
-    {% else %}
-    <tr>
-        <td colspan="6" class="text-center text-muted">No hay facturas cargadas.</td>
-    </tr>
-    {% endfor %}
-</tbody>
+                        {% if factura.estado_dte == "Cargada" %}
+                            <form method="get" action="/proveedor/solicitar_confirmacion/{{ factura.id }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-warning ms-2">Solicitar Confirmación</button>
+                            </form>
+                        {% elif factura.estado_dte == "Confirmada por pagador" %}
+                            <form method="post" action="/proveedor/solicitar_confirming/{{ factura.id }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-primary ms-2">Solicitar Confirming</button>
+                            </form>
+                            <form method="post" action="/proveedor/rechazar_vencimiento/{{ factura.id }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-danger ms-2">Rechazar Vencimiento</button>
+                            </form>
+                        {% elif factura.estado_dte == "Vencimiento rechazado por proveedor" %}
+                            <span class="text-danger ms-2">Rechazado</span>
+                        {% elif factura.estado_dte == "En confirming" %}
+                            <span class="text-success ms-2">Confirming solicitado</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted">No hay facturas cargadas.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
         </table>
     </div>
 </div>
