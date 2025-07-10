@@ -18,7 +18,7 @@ def get_db():
         db.close()
 
 # Mostrar todas las condiciones creadas por un financiador
-@router.get("/financiador/condiciones")
+@router.get("/condiciones")
 def ver_condiciones(request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
@@ -31,7 +31,7 @@ def ver_condiciones(request: Request, db: Session = Depends(get_db)):
     })
 
 # Mostrar formulario para crear nueva condición
-@router.get("/financiador/nueva-condicion")
+@router.get("/nueva-condicion")
 def nueva_condicion_form(request: Request):
     if not request.session.get("financiador_id"):
         return RedirectResponse(url="/financiador/login", status_code=303)
@@ -39,7 +39,7 @@ def nueva_condicion_form(request: Request):
     return templates.TemplateResponse("nueva_condicion.html", {"request": request})
 
 # Guardar nueva condición
-@router.post("/financiador/nueva-condicion")
+@router.post("/nueva-condicion")
 def guardar_condicion(
     request: Request,
     rut_pagador: str = Form(...),

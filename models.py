@@ -37,7 +37,8 @@ class CondicionesPorPagador(Base):
     spread = Column(Float, default=0.0)
     dias_anticipacion = Column(Integer, default=0)
     comisiones = Column(Float, default=0.0)
-
+    nombre_financiador = Column(String, nullable=True)  # ✅ agregada
+    
     financiador = relationship("Financiador", back_populates="condiciones")
 
 class Financiador(Base):
@@ -56,6 +57,13 @@ class Financiador(Base):
 
     # Relación con ofertas realizadas
     ofertas = relationship("OfertaFinanciamiento", back_populates="financiador")
+    # ↓ Pega esto al final de la clase Financiador (antes de la siguiente clase)
+    condiciones = relationship(
+        "CondicionesPorPagador",
+        back_populates="financiador",
+        cascade="all, delete-orphan"
+    
+)
 
 class FacturaDB(Base):
     __tablename__ = "facturas"
