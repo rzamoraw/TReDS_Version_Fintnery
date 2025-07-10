@@ -83,3 +83,35 @@ def ver_marketplace(request: Request, db: Session = Depends(get_db)):
         "request": request,
         "facturas": facturas_confirmadas
     })
+
+# -------------------------------
+#  Costo de fondos diario
+# -------------------------------
+
+@router.get("/costo-fondos")
+def form_costo_fondos(request: Request, db: Session = Depends(get_db)):
+    financiador_id = request.session.get("financiador_id")
+    if not financiador_id:
+        return RedirectResponse(url="/financiador/login", status_code=303)
+
+    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
+    return templates.TemplateResponse(
+        "costo_fondos.html",
+        {"request": request, "costo_fondos": financiador.costo_fondos}
+    )
+
+@router.post("/costo-fondos")
+def guardar_costo_fondos(
+    request: Request,
+    nuevo_costo: float = Form(...),
+    db: Session = Depends(get_db)
+):
+    financiador_id = request.session.get("financiador_id")
+    if not financiador_id:
+        return RedirectResponse(url="/financiador/login", status_code=303)
+
+    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
+    financiador.costo_fondos = nuevo_costo
+    db.commit()
+
+    return RedirectResponse(url="/financiador/costo-fondos?msg=ok", status_code=303)

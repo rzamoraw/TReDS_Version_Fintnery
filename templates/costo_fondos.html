@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Costo de Fondos{% endblock %}
+
+{% block content %}
+<h2>Costo de fondos diario</h2>
+
+{% if request.query_params.get('msg') == 'ok' %}
+  <div class="alert alert-success">Guardado correctamente ✅</div>
+{% endif %}
+
+<form method="post" action="/financiador/costo-fondos" style="max-width: 300px;">
+  <label for="nuevo_costo">Costo de fondos (% anual)</label>
+  <input type="number" name="nuevo_costo" step="0.01" value="{{ costo_fondos }}" class="form-control" required>
+  <button type="submit" class="btn btn-primary mt-2">Guardar</button>
+</form>
+
+<a href="/financiador/inicio" class="btn btn-link mt-3">Volver al inicio</a>
+{% endblock %}
