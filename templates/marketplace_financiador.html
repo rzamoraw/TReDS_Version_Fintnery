@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Marketplace{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Marketplace – Facturas Confirmadas</h2>
+
+{% if facturas %}
+<table class="table table-bordered table-hover">
+  <thead class="table-light">
+    <tr>
+      <th>Folio</th>
+      <th>Proveedor</th>
+      <th>Monto</th>
+      <th>Fecha Vencimiento</th>
+      <th>Acción</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for f in facturas %}
+    <tr>
+      <td>{{ f.folio }}</td>
+      <td>{{ f.razon_social_emisor }}</td>
+      <td>${{ '{:,.0f}'.format(f.monto) }}</td>
+      <td>{{ f.fecha_vencimiento }}</td>
+      <td>
+        {% if f.id in ofertas_propias %}
+          <form action="/financiador/editar-oferta/{{ f.id }}" method="get" class="d-inline">
+            <button class="btn btn-sm btn-outline-primary">Editar oferta</button>
+          </form>
+        {% else %}
+          <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
+            <button class="btn btn-sm btn-primary">Ofertar</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted">No hay facturas disponibles para ofertar.</p>
+{% endif %}
+{% endblock %}

@@ -21,5 +21,13 @@
     <footer class="footer">
         <p>&copy; 2025 Fintnery | Plataforma ética de confirming</p>
     </footer>
+    {% if financiador_nombre or proveedor_nombre or pagador_nombre %}
+    <div style="position: absolute; top: 20px; right: 30px; color: white; background-color: #0d6efd; padding: 5px 10px; border-radius: 5px;">
+        Usuario: 
+        {% if financiador_nombre %}{{ financiador_nombre }} (Financiador){% endif %}
+        {% if proveedor_nombre %}{{ proveedor_nombre }} (Proveedor){% endif %}
+        {% if pagador_nombre %}{{ pagador_nombre }} (Pagador){% endif %}
+    </div>
+{% endif %}
 </body>
 </html>

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Ofertar sobre Factura{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2>Ofertar sobre Factura</h2>
+
+    <div class="mb-3">
+        <strong>Folio:</strong> {{ factura.folio }}<br>
+        <strong>Emisor:</strong> {{ factura.razon_social_emisor }}<br>
+        <strong>Monto:</strong> ${{ "{:,.0f}".format(factura.monto) }}<br>
+        <strong>Vencimiento:</strong> {{ factura.fecha_vencimiento }}
+    </div>
+
+    <form method="post" action="/financiador/registrar-oferta/{{ factura.id }}">
+        <div class="mb-3">
+            <label for="tasa_interes" class="form-label">Tasa de interés (%)</label>
+            <input type="number" step="0.01" name="tasa_interes" id="tasa_interes" required class="form-control">
+        </div>
+        <div class="mb-3">
+            <label for="dias_anticipacion" class="form-label">Días de anticipación</label>
+            <input type="number" name="dias_anticipacion" id="dias_anticipacion" required class="form-control">
+        </div>
+        <button type="submit" class="btn btn-primary">Registrar Oferta</button>
+        <a href="/financiador/marketplace" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %}

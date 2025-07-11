@@ -19,7 +19,8 @@ def get_db():
 # Marketplace general: muestra facturas con confirming solicitado
 @router.get("/marketplace-general")
 def ver_marketplace_general(request: Request, db: Session = Depends(get_db)):
-    facturas = db.query(FacturaDB).filter(FacturaDB.estado_dte == "En confirming").all()
+    facturas = db.query(FacturaDB).filter(FacturaDB.estado_dte == "Confirming solicitado").all()
+
     return templates.TemplateResponse("marketplace_general.html", {
         "request": request,
         "facturas": facturas

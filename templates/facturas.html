@@ -128,13 +128,13 @@
                     <td>{{ factura.fecha_emision }}</td>
                     <td>{{ factura.fecha_vencimiento }}</td>
                     <td>
-                        {{ factura.estado_dte }}
-
                         {% if factura.estado_dte == "Cargada" %}
+                            {{ factura.estado_dte }}
                             <form method="get" action="/proveedor/solicitar_confirmacion/{{ factura.id }}" class="d-inline">
                                 <button type="submit" class="btn btn-sm btn-warning ms-2">Solicitar Confirmación</button>
                             </form>
                         {% elif factura.estado_dte == "Confirmada por pagador" %}
+                            {{ factura.estado_dte }}
                             <form method="post" action="/proveedor/solicitar_confirming/{{ factura.id }}" class="d-inline">
                                 <button type="submit" class="btn btn-sm btn-primary ms-2">Solicitar Confirming</button>
                             </form>
@@ -143,8 +143,10 @@
                             </form>
                         {% elif factura.estado_dte == "Vencimiento rechazado por proveedor" %}
                             <span class="text-danger ms-2">Rechazado</span>
-                        {% elif factura.estado_dte == "En confirming" %}
+                        {% elif factura.estado_dte == "Confirming solicitado" %}
                             <span class="text-success ms-2">Confirming solicitado</span>
+                        {% else %}
+                            {{ factura.estado_dte }}
                         {% endif %}
                     </td>
                 </tr>

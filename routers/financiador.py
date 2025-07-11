@@ -6,7 +6,7 @@ from passlib.context import CryptContext
 
 from database import SessionLocal
 from models import Financiador
-from models import FacturaDB
+from models import FacturaDB, OfertaFinanciamiento
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -60,29 +60,63 @@ def login_financiador(
     return RedirectResponse(url="/financiador/inicio", status_code=303)
 
 @router.get("/inicio")
-def inicio_financiador(request: Request):
+def inicio_financiador(request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
         return RedirectResponse(url="/financiador/login", status_code=303)
     
+    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
+    financiador_nombre = financiador.nombre if financiador else "Desconocido"
+
     return templates.TemplateResponse("inicio_financiador.html", {
         "request": request,
-        "financiador_id": financiador_id
+        "financiador_id": financiador_id,
+        "financiador_nombre": financiador_nombre
     })
 
-# Ruta marketplace
+# -------------------------------
+#  Marketplace del financiador
+# -------------------------------
 @router.get("/marketplace")
-def ver_marketplace(request: Request, db: Session = Depends(get_db)):
+def ver_marketplace(
+    request: Request,
+    db: Session = Depends(get_db)
+):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
         return RedirectResponse(url="/financiador/login", status_code=303)
+    
+    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
+    financiador_nombre = financiador.nombre if financiador else "Desconocido"
 
-    facturas_confirmadas = db.query(FacturaDB).filter(FacturaDB.estado_dte == "Confirmada por pagador").all()
 
-    return templates.TemplateResponse("marketplace.html", {
-        "request": request,
-        "facturas": facturas_confirmadas
-    })
+    # 1️⃣  Solo facturas en "Confirming solicitado"
+    facturas = (
+        db.query(FacturaDB)
+        .filter(
+            FacturaDB.estado_dte == "Confirming solicitado",
+            FacturaDB.financiador_adjudicado.is_(None)
+        )
+        .all()
+    )
+
+    # 2️⃣  Ofertas propias (para saber si ya ofertó)
+    ofertas_propias = {
+        o.factura_id: o
+        for o in db.query(OfertaFinanciamiento)
+                   .filter_by(financiador_id=financiador_id)
+                   .all()
+    }
+
+    return templates.TemplateResponse(
+        "marketplace_financiador.html",        # ⬅️  NUEVO template
+        {
+            "request": request,
+            "facturas": facturas,
+            "ofertas_propias": ofertas_propias,
+            "financiador_nombre": financiador_nombre
+        }
+    )
 
 # -------------------------------
 #  Costo de fondos diario
@@ -97,7 +131,11 @@ def form_costo_fondos(request: Request, db: Session = Depends(get_db)):
     financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
     return templates.TemplateResponse(
         "costo_fondos.html",
-        {"request": request, "costo_fondos": financiador.costo_fondos}
+        {
+            "request": request,
+            "costo_fondos": financiador.costo_fondos,
+            "financiador_nombre": financiador.nombre
+        }
     )
 
 @router.post("/costo-fondos")
@@ -112,6 +150,57 @@ def guardar_costo_fondos(
 
     financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
     financiador.costo_fondos = nuevo_costo
+    db.commit()
+
+# -------------------------------
+#  Ofertas del FInanciador
+# -------------------------------
+@router.get("/ofertar/{factura_id}")
+def mostrar_formulario_oferta(
+    factura_id: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    financiador_id = request.session.get("financiador_id")
+    if not financiador_id:
+        return RedirectResponse(url="/financiador/login", status_code=303)
+
+    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
+    financiador_nombre = financiador.nombre if financiador else "Desconocido"
+
+    factura = db.query(FacturaDB).filter(FacturaDB.id == factura_id).first()
+    if not factura:
+        return templates.TemplateResponse("error.html", {"request": request, "mensaje": "Factura no encontrada"})
+
+    return templates.TemplateResponse("ofertar.html", {
+        "request": request,
+        "factura": factura,
+        "financiador_nombre": financiador_nombre
+    })
+  
+# -------------------------------
+#  Registrar Ofertas del Financiador
+# -------------------------------
+@router.post("/registrar-oferta/{factura_id}")
+def registrar_oferta(
+    factura_id: int,
+    request: Request,
+    tasa_interes: float = Form(...),
+    dias_anticipacion: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    financiador_id = request.session.get("financiador_id")
+    if not financiador_id:
+        return RedirectResponse(url="/financiador/login", status_code=303)
+
+    nueva = OfertaFinanciamiento(
+        factura_id=factura_id,
+        financiador_id=financiador_id,
+        tasa_interes=tasa_interes,
+        dias_anticipacion=dias_anticipacion,
+        estado="Oferta realizada"
+    )
+    db.add(nueva)
     db.commit()
 
     return RedirectResponse(url="/financiador/costo-fondos?msg=ok", status_code=303)

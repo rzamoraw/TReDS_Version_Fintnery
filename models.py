@@ -38,7 +38,7 @@ class CondicionesPorPagador(Base):
     dias_anticipacion = Column(Integer, default=0)
     comisiones = Column(Float, default=0.0)
     nombre_financiador = Column(String, nullable=True)  # ✅ agregada
-    
+
     financiador = relationship("Financiador", back_populates="condiciones")
 
 class Financiador(Base):
@@ -52,18 +52,14 @@ class Financiador(Base):
     # Opcionalmente, puede tener su costo de fondos base
     costo_fondos = Column(Float, default=0.0)
 
-    # Relación con condiciones automáticas por pagador
-    condiciones = relationship("CondicionesPorPagador", back_populates="financiador")
-
-    # Relación con ofertas realizadas
-    ofertas = relationship("OfertaFinanciamiento", back_populates="financiador")
-    # ↓ Pega esto al final de la clase Financiador (antes de la siguiente clase)
+# ↓ Pega esto al final de la clase Financiador (antes de la siguiente clase)
     condiciones = relationship(
         "CondicionesPorPagador",
         back_populates="financiador",
         cascade="all, delete-orphan"
-    
-)
+    )
+    # Relación con ofertas realizadas
+    ofertas = relationship("OfertaFinanciamiento", back_populates="financiador")
 
 class FacturaDB(Base):
     __tablename__ = "facturas"
@@ -100,6 +96,9 @@ class OfertaFinanciamiento(Base):
     tasa_interes = Column(Float)
     dias_anticipacion = Column(Integer)
     monto_total = Column(Float)
+    comision_flat = Column(Float, default=0.0)
+    precio_cesion = Column(Float)
+    estado = Column(String, default="Oferta realizada")
 
     factura_id = Column(Integer, ForeignKey("facturas.id"))
     financiador_id = Column(Integer, ForeignKey("financiadores.id"))
