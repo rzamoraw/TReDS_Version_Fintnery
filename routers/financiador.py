@@ -261,6 +261,20 @@ def registrar_oferta(
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
         return RedirectResponse(url="/financiador/login", status_code=303)
+    # --- datos base ----------------------------------------------------------
+    factura      = db.query(FacturaDB).get(factura_id)
+    financiador  = db.query(Financiador).get(financiador_id)
+    monto        = factura.monto
+    spread       = tasa_interes                       # % mensual
+    costo_fondos = financiador.costo_fondos_mensual   # % mensual
+    tasa_total   = spread + costo_fondos              # % mensual
+
+
+    # ── 💰 precio de cesión ─────────────────────────────────────────
+    # descuento = monto * (tasa_total / 100) * (dias / 30)
+    descuento = monto * (tasa_total / 100) * (dias_anticipacion / 30)   # ✅ usa tasa_total
+    precio_cesion = monto - descuento - comision_flat                   # ✅ usa monto ya definido
+    # ----------------------------------------------------------------
 
     nueva = OfertaFinanciamiento(
         factura_id=factura_id,
@@ -268,6 +282,7 @@ def registrar_oferta(
         tasa_interes=tasa_interes,
         comision_flat=comision_flat,
         dias_anticipacion=dias_anticipacion,
+        precio_cesion=precio_cesion,
         estado="Oferta realizada"
     )
     db.add(nueva)

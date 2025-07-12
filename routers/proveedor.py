@@ -2,12 +2,13 @@
 from fastapi import APIRouter, Request, Form, Depends, UploadFile, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from passlib.context import CryptContext
 from database import SessionLocal
-from models import Proveedor, FacturaDB
+from models import Proveedor, FacturaDB, OfertaFinanciamiento
 from datetime import datetime
 import os, zipfile, xml.etree.ElementTree as ET
+from fastapi import HTTPException
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -98,20 +99,31 @@ def inicio_proveedor(request: Request, db: Session = Depends(get_db)):
 # ─────────────────────────  Facturas  ──────────────────────────
 @router.get("/facturas")
 def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
-    proveedor_id = request.session.get("proveedor_id")
-    if not proveedor_id:
-        return RedirectResponse(url="/proveedor/login", status_code=303)
+    prov_id = request.session.get("proveedor_id")
+    if not prov_id:
+        return RedirectResponse("/proveedor/login", 303)
 
-    proveedor = db.query(Proveedor).get(proveedor_id)
-    proveedor_nombre = proveedor.nombre if proveedor else "Desconocido"
+    proveedor = db.query(Proveedor).get(prov_id)
+    nombre = proveedor.nombre if proveedor else "Desconocido"
 
-    facturas = db.query(FacturaDB).filter(FacturaDB.proveedor_id == proveedor_id).all()
+    # traemos facturas + ofertas en una sola consulta
+    facturas = (
+        db.query(FacturaDB)
+          .options(joinedload(FacturaDB.ofertas).joinedload(OfertaFinanciamiento.financiador))
+          .filter(FacturaDB.proveedor_id == prov_id)
+          .all()
+    )
+
+    # dict {factura_id: [lista de ofertas]}
+    ofertas_por_factura = {f.id: f.ofertas for f in facturas}
+
     return templates.TemplateResponse(
         "facturas.html",
         {
             "request": request,
             "facturas": facturas,
-            "proveedor_nombre": proveedor_nombre
+            "ofertas_por_factura": ofertas_por_factura,   # ⬅️ lo usa el template
+            "proveedor_nombre": nombre
         }
     )
 
@@ -224,23 +236,90 @@ def solicitar_confirmacion_factura(
 
 # ─────────────────────────  Confirming / Rechazo  ──────────────────────────
 @router.post("/solicitar_confirming/{factura_id}")
-def solicitar_confirming(factura_id: int):
-    db = SessionLocal()
+def solicitar_confirming(factura_id: int, db: Session = Depends(get_db)):
     factura = db.query(FacturaDB).get(factura_id)
     if factura and factura.estado_dte == "Confirmada por pagador":
         factura.estado_dte = "Confirming solicitado"
         factura.confirming_solicitado = True
         db.commit()
-    db.close()
-    return RedirectResponse(url="/proveedor/facturas", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse("/proveedor/facturas", 303)
 
 
 @router.post("/rechazar_vencimiento/{factura_id}")
-def rechazar_vencimiento(factura_id: int):
-    db = SessionLocal()
+def rechazar_vencimiento(factura_id: int, db: Session = Depends(get_db)):
     factura = db.query(FacturaDB).get(factura_id)
     if factura and factura.estado_dte == "Confirmada por pagador":
         factura.estado_dte = "Vencimiento rechazado por proveedor"
         db.commit()
-    db.close()
-    return RedirectResponse(url="/proveedor/facturas", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse("/proveedor/facturas", 303)
+# --------------------------------------------------------
+# 1️⃣  Ver todas las ofertas de una factura
+# --------------------------------------------------------
+@router.get("/ofertas/{factura_id}")
+def ver_ofertas_factura(
+    factura_id: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    prov_id = request.session.get("proveedor_id")
+    if not prov_id:
+        return RedirectResponse("/proveedor/login", 303)
+
+    factura = db.query(FacturaDB).get(factura_id)
+    if not factura or factura.proveedor_id != prov_id:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    # Solo mostrar si la factura está en confirming solicitado
+    if factura.estado_dte != "Confirming solicitado":
+        raise HTTPException(status_code=400, detail="La factura ya fue adjudicada o aún no solicitada")
+
+    ofertas = (
+        db.query(OfertaFinanciamiento)
+          .filter_by(factura_id=factura_id)
+          .order_by(OfertaFinanciamiento.tasa_interes.asc())
+          .all()
+    )
+
+    return templates.TemplateResponse(
+        "ofertas_proveedor.html",
+        {
+            "request": request,
+            "factura": factura,
+            "ofertas": ofertas
+        }
+    )
+
+# --------------------------------------------------------
+# 2️⃣  Aceptar una oferta (rechaza las otras)
+# --------------------------------------------------------
+@router.post("/aceptar-oferta/{oferta_id}")
+def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_db)):
+    prov_id = request.session.get("proveedor_id")
+    if not prov_id:
+        return RedirectResponse("/proveedor/login", 303)
+
+    oferta = db.query(OfertaFinanciamiento).get(oferta_id)
+    if not oferta:
+        raise HTTPException(status_code=404, detail="Oferta no encontrada")
+
+    factura = oferta.factura
+    if factura.proveedor_id != prov_id:
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    # 1. Marcar oferta aceptada
+    oferta.estado = "Adjudicada"
+
+    # 2. Rechazar otras ofertas de la misma factura
+    (
+        db.query(OfertaFinanciamiento)
+          .filter(OfertaFinanciamiento.factura_id == factura.id,
+                  OfertaFinanciamiento.id != oferta_id)
+          .update({"estado": "No adjudicada"})
+    )
+
+    # 3. Marcar factura
+    factura.financiador_adjudicado = oferta.financiador_id
+    factura.estado_dte = "Confirming adjudicado"
+    db.commit()
+
+    return RedirectResponse("/proveedor/facturas?msg=oferta_ok", 303)
