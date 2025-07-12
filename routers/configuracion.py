@@ -23,12 +23,16 @@ def ver_condiciones(request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
         return RedirectResponse(url="/financiador/login", status_code=303)
-    
+
+    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
     condiciones = db.query(CondicionesPorPagador).filter_by(financiador_id=financiador_id).all()
+
     return templates.TemplateResponse("condiciones.html", {
         "request": request,
-        "condiciones": condiciones
+        "condiciones": condiciones,
+        "financiador_nombre": financiador.nombre  # ⬅️ Esto habilita el nombre en base.html
     })
+
 
 # Mostrar formulario para crear nueva condición
 @router.get("/nueva-condicion")

@@ -29,5 +29,8 @@
         {% if pagador_nombre %}{{ pagador_nombre }} (Pagador){% endif %}
     </div>
 {% endif %}
+    {% if request.session.get('es_admin') %}
+  <a href="/financiador/usuarios" class="btn btn-sm btn-outline-light ms-2">Panel usuarios</a>
+{% endif %}
 </body>
 </html>

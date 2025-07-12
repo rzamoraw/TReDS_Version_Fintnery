@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Usuarios Financiador{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+  <h2 class="mb-4">Usuarios Financiador</h2>
+
+  <table class="table table-bordered">
+    <thead class="table-light">
+      <tr><th>ID</th><th>Nombre</th><th>Usuario</th><th>Admin</th><th>Acción</th></tr>
+    </thead>
+    <tbody>
+    {% for u in usuarios %}
+      <tr>
+        <td>{{ u.id }}</td>
+        <td>{{ u.nombre }}</td>
+        <td>{{ u.usuario }}</td>
+        <td>
+          {% if u.es_admin %}
+            <span class="badge bg-success">Sí</span>
+          {% else %}
+            <span class="badge bg-secondary">No</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if u.id != request.session.get('financiador_id') %}
+          <form method="post" action="/financiador/usuarios/toggle-admin/{{ u.id }}">
+            <button class="btn btn-sm btn-outline-primary">
+              {% if u.es_admin %}Quitar admin{% else %}Hacer admin{% endif %}
+            </button>
+          </form>
+          {% else %}
+            <em>(tú)</em>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <a href="/financiador/marketplace" class="btn btn-secondary mt-3">Volver</a>
+</div>
+{% endblock %}

@@ -49,10 +49,14 @@ class Financiador(Base):
     usuario = Column(String, unique=True, index=True, nullable=False)
     clave_hash = Column(String, nullable=False)
 
-    # Opcionalmente, puede tener su costo de fondos base
-    costo_fondos = Column(Float, default=0.0)
+    # ←─ NUEVO: indica si el usuario es administrador dentro del rol financiador
+    es_admin = Column(Boolean, default=False)
 
-# ↓ Pega esto al final de la clase Financiador (antes de la siguiente clase)
+    # ✅ Costo de fondos mensual (reemplaza al anterior)
+    costo_fondos_mensual = Column(Float, default=0.0)  # ← Explicita unidad mensual
+    fecha_costo_fondos = Column(Date, default=None)    # ← Fecha de carga más reciente
+
+    # ↓ Pega esto al final de la clase Financiador (antes de la siguiente clase)
     condiciones = relationship(
         "CondicionesPorPagador",
         back_populates="financiador",
