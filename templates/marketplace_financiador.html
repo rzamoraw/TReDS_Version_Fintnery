@@ -24,10 +24,16 @@
       <td>{{ f.fecha_vencimiento }}</td>
       <td>
         {% if f.id in ofertas_propias %}
-          <form action="/financiador/editar-oferta/{{ f.id }}" method="get" class="d-inline">
+          <!-- Botón Ver oferta -->
+          <form action="/financiador/ver-oferta/{{ ofertas_propias[f.id].id }}" method="get" class="d-inline">
+            <button class="btn btn-sm btn-outline-info">Ver oferta</button>
+          </form>
+          <!-- Botón Editar oferta -->
+          <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
             <button class="btn btn-sm btn-outline-primary">Editar oferta</button>
           </form>
         {% else %}
+          <!-- Botón para ofertar inicialmente -->
           <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
             <button class="btn btn-sm btn-primary">Ofertar</button>
           </form>

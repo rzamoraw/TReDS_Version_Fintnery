@@ -44,7 +44,7 @@ def registrar_financiador(
     nuevo = Financiador(nombre=nombre, usuario=usuario, clave_hash=clave_hash)
     db.add(nuevo)
     db.commit()
-    return RedirectResponse(url="/financiador/login", status_code=303)
+    return RedirectResponse(url="/financiador/marketplace", status_code=303)
 
 @router.get("/login")
 def mostrar_formulario_login(request: Request):
@@ -66,7 +66,7 @@ def login_financiador(
     
     request.session["financiador_id"] = financiador.id
     request.session["es_admin"] = financiador.es_admin    # ⬅️ NUEVO
-    return RedirectResponse(url="/financiador/inicio", status_code=303)
+    return RedirectResponse(url="/financiador/marketplace", status_code=303)
 
 @router.get("/inicio")
 def inicio_financiador(request: Request, db: Session = Depends(get_db)):
@@ -235,10 +235,15 @@ def mostrar_formulario_oferta(
     if not factura:
         return templates.TemplateResponse("error.html", {"request": request, "mensaje": "Factura no encontrada"})
 
+    # ✅ Calcular días de anticipación
+    hoy = date.today()
+    dias_anticipacion = (factura.fecha_vencimiento - hoy).days
+
     return templates.TemplateResponse("ofertar.html", {
         "request": request,
         "factura": factura,
-        "financiador_nombre": financiador_nombre
+        "financiador_nombre": financiador_nombre,
+         "dias_anticipacion": dias_anticipacion,  # ⬅️ Se pasa a la plantilla
     })
   
 # -------------------------------
@@ -249,6 +254,7 @@ def registrar_oferta(
     factura_id: int,
     request: Request,
     tasa_interes: float = Form(...),
+    comision_flat: float = Form(...),
     dias_anticipacion: int = Form(...),
     db: Session = Depends(get_db)
 ):
@@ -260,10 +266,51 @@ def registrar_oferta(
         factura_id=factura_id,
         financiador_id=financiador_id,
         tasa_interes=tasa_interes,
+        comision_flat=comision_flat,
         dias_anticipacion=dias_anticipacion,
         estado="Oferta realizada"
     )
     db.add(nueva)
     db.commit()
 
-    return RedirectResponse(url="/financiador/costo-fondos?msg=ok", status_code=303)
+    return RedirectResponse(url="/financiador/marketplace", status_code=303)
+
+@router.post("/actualizar-oferta/{oferta_id}")
+def actualizar_oferta(
+    oferta_id: int,
+    request: Request,
+    tasa_interes: float = Form(...),
+    comision_flat: float = Form(0),
+    db: Session = Depends(get_db)
+):
+    oferta = db.query(OfertaFinanciamiento).get(oferta_id)
+    if not oferta or oferta.financiador_id != request.session.get("financiador_id"):
+        raise HTTPException(status_code=403)
+
+    oferta.tasa_interes = tasa_interes
+    oferta.comision_flat = comision_flat
+    db.commit()
+
+    return RedirectResponse(f"/financiador/ver-oferta/{oferta_id}", 303)
+
+# --- NUEVA RUTA: ver oferta (solo lectura) -------------------
+@router.get("/ver-oferta/{oferta_id}")
+def ver_oferta(oferta_id: int, request: Request, db: Session = Depends(get_db)):
+    oferta = db.query(OfertaFinanciamiento).get(oferta_id)
+    if not oferta:
+        raise HTTPException(status_code=404, detail="Oferta no encontrada")
+
+    # seguridad: sólo el dueño puede verla
+    if oferta.financiador_id != request.session.get("financiador_id"):
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    factura = oferta.factura
+    return templates.TemplateResponse(
+        "ver_oferta.html",
+        {
+            "request": request,
+            "factura": factura,
+            "oferta": oferta
+        }
+    )
+

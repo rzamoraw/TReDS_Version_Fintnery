@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Oferta registrada{% endblock %}
+
+{% block content %}
+<h2>Oferta registrada</h2>
+
+<ul>
+  <li><strong>Folio:</strong> {{ factura.folio }}</li>
+  <li><strong>Monto:</strong> ${{ "{:,.0f}".format(factura.monto) }}</li>
+  <li><strong>Vencimiento:</strong> {{ factura.fecha_vencimiento }}</li>
+</ul>
+
+<table class="table">
+  <tr><th>Tasa interés (%)</th><td>{{ oferta.tasa_interes }}</td></tr>
+  <tr><th>Comisión flat</th><td>
+        {% if oferta.comision_flat %}
+            ${{ "{:,.0f}".format(oferta.comision_flat) }}
+        {% else %}-{% endif %}
+      </td></tr>
+  <tr><th>Días anticipación</th><td>{{ oferta.dias_anticipacion }}</td></tr>
+</table>
+
+<a class="btn btn-primary" href="/financiador/editar-oferta/{{ oferta.id }}">Editar oferta</a>
+<a class="btn btn-secondary" href="/financiador/marketplace">Volver</a>
+{% endblock %}

@@ -50,7 +50,7 @@ class Financiador(Base):
     clave_hash = Column(String, nullable=False)
 
     # ←─ NUEVO: indica si el usuario es administrador dentro del rol financiador
-    es_admin = Column(Boolean, default=False)
+    es_admin = Column(Boolean, default=False) 
 
     # ✅ Costo de fondos mensual (reemplaza al anterior)
     costo_fondos_mensual = Column(Float, default=0.0)  # ← Explicita unidad mensual
