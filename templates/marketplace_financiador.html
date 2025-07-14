@@ -2,48 +2,50 @@
 {% block title %}Marketplace{% endblock %}
 
 {% block content %}
-<h2 class="mb-4">Marketplace – Facturas Confirmadas</h2>
+<div class="container mt-5">
+  <h2 class="mb-4">Marketplace – Facturas en Confirming</h2>
 
-{% if facturas %}
-<table class="table table-bordered table-hover">
-  <thead class="table-light">
-    <tr>
-      <th>Folio</th>
-      <th>Proveedor</th>
-      <th>Monto</th>
-      <th>Fecha Vencimiento</th>
-      <th>Acción</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for f in facturas %}
-    <tr>
-      <td>{{ f.folio }}</td>
-      <td>{{ f.razon_social_emisor }}</td>
-      <td>${{ '{:,.0f}'.format(f.monto) }}</td>
-      <td>{{ f.fecha_vencimiento }}</td>
-      <td>
-        {% if f.id in ofertas_propias %}
-          <!-- Botón Ver oferta -->
-          <form action="/financiador/ver-oferta/{{ ofertas_propias[f.id].id }}" method="get" class="d-inline">
-            <button class="btn btn-sm btn-outline-info">Ver oferta</button>
-          </form>
-          <!-- Botón Editar oferta -->
-          <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
-            <button class="btn btn-sm btn-outline-primary">Editar oferta</button>
-          </form>
-        {% else %}
-          <!-- Botón para ofertar inicialmente -->
-          <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
-            <button class="btn btn-sm btn-primary">Ofertar</button>
-          </form>
-        {% endif %}
-      </td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% else %}
-<p class="text-muted">No hay facturas disponibles para ofertar.</p>
-{% endif %}
+  {% if facturas %}
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover bg-white">
+      <thead class="table-light">
+        <tr>
+          <th>Folio</th>
+          <th>Proveedor</th>
+          <th>Monto</th>
+          <th>Fecha Vencimiento</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for f in facturas %}
+        <tr>
+          <td>{{ f.folio }}</td>
+          <td>{{ f.razon_social_emisor }}</td>
+          <td>${{ '{:,.0f}'.format(f.monto) }}</td>
+          <td>{{ f.fecha_vencimiento }}</td>
+          <td>
+            {% if f.id in ofertas_propias %}
+              <form action="/financiador/ver-oferta/{{ ofertas_propias[f.id].id }}" method="get" class="d-inline">
+                <button class="btn btn-sm btn-outline-info">Ver oferta</button>
+              </form>
+              <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
+                <button class="btn btn-sm btn-outline-primary">Editar oferta</button>
+              </form>
+            {% else %}
+              <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
+                <button class="btn btn-sm btn-primary">Ofertar</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted">No hay facturas disponibles para ofertar.</p>
+  {% endif %}
+</div>
 {% endblock %}
+

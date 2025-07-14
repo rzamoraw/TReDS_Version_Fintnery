@@ -52,6 +52,20 @@ def cargar_factura(
     if not proveedor:
         return RedirectResponse(url="/proveedor/login", status_code=303)
 
+    # 🚩 Validar si ya existe una factura con ese folio y rut_emisor
+    existe = db.query(FacturaDB).filter_by(
+        rut_emisor=proveedor.rut,
+        rut_receptor=rut_receptor,
+        folio=folio
+    ).first()
+
+    if existe:
+        return templates.TemplateResponse("facturas.html", {
+            "request": request,
+            "facturas": db.query(FacturaDB).filter(FacturaDB.proveedor_id == proveedor_id).all(),
+            "mensaje": f"⚠️ Ya existe una factura con folio {folio} para ese receptor."
+        })
+
     nueva_factura = FacturaDB(
         rut_emisor=proveedor.rut,
         razon_social_emisor=proveedor.nombre,
@@ -68,3 +82,4 @@ def cargar_factura(
     db.add(nueva_factura)
     db.commit()
     return RedirectResponse(url="/proveedor/facturas", status_code=303)
+

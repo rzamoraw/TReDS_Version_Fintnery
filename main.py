@@ -1,61 +1,44 @@
-# main.py
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
+from dotenv import load_dotenv
+import os
 
-from database import engine, Base
-from routers import (
-    proveedor,
-    pagador,
-    financiador,
-    auth,
-    configuracion,          # <- tu nuevo módulo
-    facturas_proveedor,
-    admin,
-    marketplace,
-)
+# Routers (importando los objetos `router` de cada archivo)
+from routers.auth import router as auth_router
+from routers.proveedor import router as proveedor_router
+from routers.pagador import router as pagador_router
+from routers.financiador import router as financiador_router
+from routers.marketplace import router as marketplace_router
+from routers.admin import router as admin_router
+from routers.configuracion import router as configuracion_router
 
+
+# 🔐 Cargar variables de entorno
+load_dotenv()
+
+# 🚀 Crear aplicación
 app = FastAPI()
 
-# --- Base de datos ---------------------------------------------------------
-Base.metadata.create_all(bind=engine)
+# 🔐 Middleware de sesión con clave segura desde .env
+SECRET_KEY = os.getenv("SECRET_KEY", "!defaultsecret")
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
-# --- Archivos estáticos y plantillas --------------------------------------
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+# 📦 Inclusión de routers en orden lógico
+app.include_router(auth_router, prefix="/auth")
+app.include_router(proveedor_router, prefix="/proveedor")
+app.include_router(pagador_router, prefix="/pagador")
+app.include_router(financiador_router, prefix="/financiador")
+app.include_router(marketplace_router, prefix="/marketplace")
+app.include_router(configuracion_router, prefix="/configuracion")
+app.include_router(admin_router, prefix="/admin")
 
-# --- Sesiones --------------------------------------------------------------
-app.add_middleware(SessionMiddleware, secret_key="super-secret-key")
+# ⚠️ Manejo de errores 404 (opcional y no invasivo)
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    return JSONResponse(status_code=404, content={"detail": "Recurso no encontrado."})
 
-# --- Routers ---------------------------------------------------------------
-app.include_router(auth.router)
-
-# Portales principales
-app.include_router(proveedor.router,   prefix="/proveedor",   tags=["Proveedor"])
-app.include_router(pagador.router,     prefix="/pagador",     tags=["Pagador"])
-app.include_router(financiador.router, prefix="/financiador", tags=["Financiador"])
-
-# Configuraciones del financiador  (SIN prefijo extra)
-app.include_router(configuracion.router, prefix="/financiador", tags=["Configuracion"])
-
-# Otros módulos auxiliares
-app.include_router(facturas_proveedor.router, prefix="/proveedor", tags=["Facturas"])
-app.include_router(admin.router)
-app.include_router(marketplace.router)
-
-# --- Landing temporal ------------------------------------------------------
-@app.get("/")
-def inicio(request: Request):
-    return templates.TemplateResponse("inicio.html", {"request": request})
-
-# --- Debug: mostrar rutas montadas ---
-from fastapi.routing import APIRoute
-
-@app.on_event("startup")
-async def show_routes():
-    print("\nRUTAS MONTADAS:")
-    for route in app.routes:
-        if isinstance(route, APIRoute):
-            print(f"{route.methods} {route.path}")
-    print()
+# ⚠️ Manejo de errores 500 (opcional)
+@app.exception_handler(500)
+async def server_error_handler(request: Request, exc):
+    return JSONResponse(status_code=500, content={"detail": "Error interno del servidor."})

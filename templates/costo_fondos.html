@@ -10,14 +10,16 @@
 {% endif %}
 
 <form method="post" action="/financiador/costo-fondos" style="max-width: 300px;">
-  <label for="nuevo_costo">Costo de fondos (% anual)</label>
+  <label for="nuevo_costo" class="form-label">Costo de fondos (% anual)</label>
   <input type="number"
-       step="0.01"
-       name="nuevo_costo_mensual"   <!-- ← nombre correcto -->
-       value="{{ costo_fondos }}"
-       class="form-control">
-    <button type="submit" class="btn btn-primary mt-2">Guardar</button>
+         step="0.01"
+         name="nuevo_costo_mensual"
+         id="nuevo_costo"
+         value="{{ costo_fondos }}"
+         class="form-control">
+  <button type="submit" class="btn btn-primary mt-2">Guardar</button>
 </form>
 
 <a href="/financiador/inicio" class="btn btn-link mt-3">Volver al inicio</a>
 {% endblock %}
+

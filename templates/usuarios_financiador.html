@@ -5,9 +5,19 @@
 <div class="container mt-5">
   <h2 class="mb-4">Usuarios Financiador</h2>
 
-  <table class="table table-bordered">
+  <div class="alert alert-info" role="alert">
+      Recuerda: al menos un usuario debe estar marcado como <strong>Admin</strong> para poder cargar el <a href="/financiador/costo-fondos" class="alert-link">Costo&nbsp;de&nbsp;Fondos</a> diario.
+  </div>
+
+  <table class="table table-bordered table-hover">
     <thead class="table-light">
-      <tr><th>ID</th><th>Nombre</th><th>Usuario</th><th>Admin</th><th>Acción</th></tr>
+      <tr>
+          <th>ID</th>
+          <th>Nombre</th>
+          <th>Usuario</th>
+          <th>Admin</th>
+          <th>Acción</th>
+      </tr>
     </thead>
     <tbody>
     {% for u in usuarios %}
@@ -24,7 +34,7 @@
         </td>
         <td>
           {% if u.id != request.session.get('financiador_id') %}
-          <form method="post" action="/financiador/usuarios/toggle-admin/{{ u.id }}">
+          <form method="post" action="/financiador/usuarios/toggle-admin/{{ u.id }}" class="d-inline">
             <button class="btn btn-sm btn-outline-primary">
               {% if u.es_admin %}Quitar admin{% else %}Hacer admin{% endif %}
             </button>

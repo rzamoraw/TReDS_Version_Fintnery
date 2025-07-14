@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
-<DTE>
+<DTE version="1.0" ID="F9202">
   <Documento>
     <Encabezado>
       <IdDoc>
         <TipoDTE>33</TipoDTE>
         <Folio>9202</Folio>
-        <FchEmis>2025-07-07</FchEmis>
-        <FchVenc>2025-08-11</FchVenc>
+        <FchEmis>2025-07-13</FchEmis>
+        <FchVenc>2025-09-06</FchVenc>
       </IdDoc>
       <Emisor>
-        <RUTEmisor>76111234-5</RUTEmisor>
-        <RznSoc>Proveedor Ejemplo SpA</RznSoc>
+        <RUTEmisor>76000010-1</RUTEmisor>
+        <RznSoc>Proveedor Demo SpA</RznSoc>
       </Emisor>
       <Receptor>
-        <RUTRecep>76321234-9</RUTRecep>
-        <RznSocRecep>Pagador Demo Ltda</RznSocRecep>
+        <RUTRecep>60910000-K</RUTRecep>
+        <RznSocRecep>Pagador Demo Ltda.</RznSocRecep>
       </Receptor>
       <Totales>
-        <MntTotal>125000</MntTotal>
+        <MntTotal>1500000</MntTotal>
       </Totales>
     </Encabezado>
   </Documento>

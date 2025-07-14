@@ -1,26 +1,19 @@
+# routers/financiador.py
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
-from fastapi import APIRouter, Request, Form, Depends
+from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+from datetime import date, datetime          # ← date ya estaba, datetime seguía
 
 from database import SessionLocal
-from models import Financiador
-from models import FacturaDB, OfertaFinanciamiento
-from datetime import date
-from fastapi import HTTPException  # ⬅️ nuevo import
-
-# ---------- Pequeño helper ----------
-def _solo_admin(fin: Financiador):
-    """Lanza 403 si el usuario NO es admin."""
-    if not fin.es_admin:
-        raise HTTPException(status_code=403, detail="Solo administradores")
+from models import Financiador, FacturaDB, OfertaFinanciamiento
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# DB dependency
+# ──────────────────────────────── DB dependency ────────────────────────────────
 def get_db():
     db = SessionLocal()
     try:
@@ -28,6 +21,12 @@ def get_db():
     finally:
         db.close()
 
+# ──────────────────────────────── Helper ────────────────────────────────
+def _solo_admin(fin: Financiador):
+    if not fin.es_admin:
+        raise HTTPException(status_code=403, detail="Solo administradores")
+
+# ──────────────────────────────── Registro/Login ────────────────────────────────
 @router.get("/registro")
 def mostrar_formulario_registro(request: Request):
     return templates.TemplateResponse("registro_financiador.html", {"request": request})
@@ -40,6 +39,14 @@ def registrar_financiador(
     clave: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    # ── NUEVO: verificar si el usuario ya existe ──────────────────
+    existente = db.query(Financiador).filter_by(usuario=usuario).first()
+    if existente:
+        return templates.TemplateResponse(
+            "registro_financiador.html",
+            {"request": request, "error": "El usuario ya existe."}
+        )
+    # ──────────────────────────────────────────────────────────────
     clave_hash = pwd_context.hash(clave)
     nuevo = Financiador(nombre=nombre, usuario=usuario, clave_hash=clave_hash)
     db.add(nuevo)
@@ -63,59 +70,67 @@ def login_financiador(
             "request": request,
             "error": "Usuario o clave incorrectos"
         })
-    
+
+    # ─── guardar sesión ───
     request.session["financiador_id"] = financiador.id
-    request.session["es_admin"] = financiador.es_admin    # ⬅️ NUEVO
-    return RedirectResponse(url="/financiador/marketplace", status_code=303)
+    request.session["es_admin"] = financiador.es_admin
+
+    hoy = date.today()                              # 🆕
+    # ADMIN: forzar carga diaria
+    if financiador.es_admin:
+        if financiador.fecha_costo_fondos != hoy:   # 🆕
+            return RedirectResponse("/financiador/costo-fondos", 303)
+        return RedirectResponse("/financiador/marketplace", 303)
+
+    # COMERCIAL: bloquear si admin aún no cargó hoy
+    if financiador.fecha_costo_fondos != hoy:       # 🆕
+        return templates.TemplateResponse("login_financiador.html", {
+            "request": request,
+            "error": "El administrador aún no carga el costo de fondos hoy."
+        })
+    return RedirectResponse("/financiador/marketplace", 303)
 
 @router.get("/inicio")
 def inicio_financiador(request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
         return RedirectResponse(url="/financiador/login", status_code=303)
-    
-    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
-    financiador_nombre = financiador.nombre if financiador else "Desconocido"
+
+    financiador = db.query(Financiador).get(financiador_id)
+    nombre = financiador.nombre if financiador else "Desconocido"
 
     return templates.TemplateResponse("inicio_financiador.html", {
         "request": request,
         "financiador_id": financiador_id,
-        "financiador_nombre": financiador_nombre
+        "financiador_nombre": nombre
     })
 
-# -------------------------------
-#  Marketplace del financiador
-# -------------------------------
+# ──────────────────────────────── Marketplace ────────────────────────────────
 @router.get("/marketplace")
-def ver_marketplace(
-    request: Request,
-    db: Session = Depends(get_db)
-):
+def ver_marketplace(request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
-        return RedirectResponse(url="/financiador/login", status_code=303)
-    
-    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
-    
-    # ✔︎ Si no tiene CF cargado HOY → forzamos a cargarlo antes de mostrar el marketplace
-    if not financiador.costo_fondos_mensual or financiador.fecha_costo_fondos != date.today():
-        return RedirectResponse(url="/financiador/costo-fondos", status_code=303)
-    
-    financiador_nombre = financiador.nombre if financiador else "Desconocido"
+        return RedirectResponse("/financiador/login", 303)
 
+    financiador = db.query(Financiador).get(financiador_id)
+    hoy = date.today()                              # 🆕
 
-
-    # 1️⃣  Solo facturas en "Confirming solicitado"
-    facturas = (
-        db.query(FacturaDB)
-        .filter(
-            FacturaDB.estado_dte == "Confirming solicitado",
-            FacturaDB.financiador_adjudicado.is_(None)
+    # Comercial bloqueado si admin no cargó hoy
+    if (not financiador.es_admin) and (financiador.fecha_costo_fondos != hoy):   # 🆕
+        raise HTTPException(
+            status_code=403,
+            detail="Costo de fondos no disponible todavía. Intente más tarde."
         )
-        .all()
-    )
 
-    # 2️⃣  Ofertas propias (para saber si ya ofertó)
+    # Admin forzado a cargar antes de acceder
+    if financiador.es_admin and financiador.fecha_costo_fondos != hoy:           # 🆕
+        return RedirectResponse("/financiador/costo-fondos", 303)
+
+    facturas = db.query(FacturaDB).filter(
+        FacturaDB.estado_dte == "Confirming solicitado",
+        FacturaDB.financiador_adjudicado.is_(None)
+    ).all()
+
     ofertas_propias = {
         o.factura_id: o
         for o in db.query(OfertaFinanciamiento)
@@ -123,17 +138,14 @@ def ver_marketplace(
                    .all()
     }
 
-    return templates.TemplateResponse(
-        "marketplace_financiador.html",        # ⬅️  NUEVO template
-        {
-            "request": request,
-            "facturas": facturas,
-            "ofertas_propias": ofertas_propias,
-            "financiador_nombre": financiador_nombre
-        }
-    )
+    return templates.TemplateResponse("marketplace_financiador.html", {
+        "request": request,
+        "facturas": facturas,
+        "ofertas_propias": ofertas_propias,
+        "financiador_nombre": financiador.nombre
+    })
 
-# ----------  ADMINISTRAR USUARIOS (solo admin) ----------
+# ──────────────────────────────── Administración ────────────────────────────────
 @router.get("/usuarios")
 def listar_usuarios(request: Request, db: Session = Depends(get_db)):
     fid = request.session.get("financiador_id")
@@ -144,14 +156,11 @@ def listar_usuarios(request: Request, db: Session = Depends(get_db)):
     _solo_admin(admin)
 
     usuarios = db.query(Financiador).order_by(Financiador.id).all()
-    return templates.TemplateResponse(
-        "usuarios_financiador.html",
-        {
-            "request": request,
-            "usuarios": usuarios,
-            "financiador_nombre": admin.nombre
-        }
-    )
+    return templates.TemplateResponse("usuarios_financiador.html", {
+        "request": request,
+        "usuarios": usuarios,
+        "financiador_nombre": admin.nombre
+    })
 
 @router.post("/usuarios/toggle-admin/{user_id}")
 def toggle_admin(user_id: int, request: Request, db: Session = Depends(get_db)):
@@ -163,35 +172,28 @@ def toggle_admin(user_id: int, request: Request, db: Session = Depends(get_db)):
     _solo_admin(admin)
 
     usuario = db.query(Financiador).get(user_id)
-    if usuario and usuario.id != admin.id:          # evita cambiarte a ti mismo
+    if usuario and usuario.id != admin.id:
         usuario.es_admin = not usuario.es_admin
         db.commit()
 
     return RedirectResponse("/financiador/usuarios", 303)
 
-# -------------------------------
-#  Costo de fondos diario
-# -------------------------------
-
+# ──────────────────────────────── Costo de fondos ────────────────────────────────
 @router.get("/costo-fondos")
 def form_costo_fondos(request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
-        return RedirectResponse(url="/financiador/login", status_code=303)
+        return RedirectResponse("/financiador/login", 303)
 
-    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
-    # ✔︎ Solo el admin puede entrar
-    _solo_admin(financiador)        # ⬅️ usa el helper
+    financiador = db.query(Financiador).get(financiador_id)
+    _solo_admin(financiador)
 
-    return templates.TemplateResponse(
-        "costo_fondos.html",
-        {
-            "request": request,
-            "costo_fondos": financiador.costo_fondos_mensual,
-            "fecha_costo_fondos": financiador.fecha_costo_fondos,
-            "financiador_nombre": financiador.nombre
-        }
-    )
+    return templates.TemplateResponse("costo_fondos.html", {
+        "request": request,
+        "costo_fondos": financiador.costo_fondos_mensual,
+        "fecha_costo_fondos": financiador.fecha_costo_fondos,
+        "financiador_nombre": financiador.nombre
+    })
 
 @router.post("/costo-fondos")
 def guardar_costo_fondos(
@@ -201,54 +203,37 @@ def guardar_costo_fondos(
 ):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
-        return RedirectResponse(url="/financiador/login", status_code=303)
-    
-    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
-    
-    # ✔︎ Solo el admin puede guardar
-    _solo_admin(financiador)        # ⬅️ usa el helper
+        return RedirectResponse("/financiador/login", 303)
+
+    financiador = db.query(Financiador).get(financiador_id)
+    _solo_admin(financiador)
 
     financiador.costo_fondos_mensual = nuevo_costo_mensual
     financiador.fecha_costo_fondos = date.today()
     db.commit()
 
-    # 🔻 redirigimos a donde quieras volver
-    return RedirectResponse(url="/financiador/marketplace", status_code=303)
+    return RedirectResponse("/financiador/marketplace", 303)
 
-# -------------------------------
-#  Ofertas del FInanciador
-# -------------------------------
+# ──────────────────────────────── Ofertas ────────────────────────────────
 @router.get("/ofertar/{factura_id}")
-def mostrar_formulario_oferta(
-    factura_id: int,
-    request: Request,
-    db: Session = Depends(get_db)
-):
+def mostrar_formulario_oferta(factura_id: int, request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
-        return RedirectResponse(url="/financiador/login", status_code=303)
+        return RedirectResponse("/financiador/login", 303)
 
-    financiador = db.query(Financiador).filter(Financiador.id == financiador_id).first()
-    financiador_nombre = financiador.nombre if financiador else "Desconocido"
-
-    factura = db.query(FacturaDB).filter(FacturaDB.id == factura_id).first()
+    financiador = db.query(Financiador).get(financiador_id)
+    factura = db.query(FacturaDB).get(factura_id)
     if not factura:
         return templates.TemplateResponse("error.html", {"request": request, "mensaje": "Factura no encontrada"})
 
-    # ✅ Calcular días de anticipación
-    hoy = date.today()
-    dias_anticipacion = (factura.fecha_vencimiento - hoy).days
-
+    dias_anticipacion = (factura.fecha_vencimiento - date.today()).days
     return templates.TemplateResponse("ofertar.html", {
         "request": request,
         "factura": factura,
-        "financiador_nombre": financiador_nombre,
-         "dias_anticipacion": dias_anticipacion,  # ⬅️ Se pasa a la plantilla
+        "financiador_nombre": financiador.nombre,
+        "dias_anticipacion": dias_anticipacion
     })
-  
-# -------------------------------
-#  Registrar Ofertas del Financiador
-# -------------------------------
+
 @router.post("/registrar-oferta/{factura_id}")
 def registrar_oferta(
     factura_id: int,
@@ -260,21 +245,15 @@ def registrar_oferta(
 ):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
-        return RedirectResponse(url="/financiador/login", status_code=303)
-    # --- datos base ----------------------------------------------------------
-    factura      = db.query(FacturaDB).get(factura_id)
-    financiador  = db.query(Financiador).get(financiador_id)
-    monto        = factura.monto
-    spread       = tasa_interes                       # % mensual
-    costo_fondos = financiador.costo_fondos_mensual   # % mensual
-    tasa_total   = spread + costo_fondos              # % mensual
+        return RedirectResponse("/financiador/login", 303)
 
+    factura = db.query(FacturaDB).get(factura_id)
+    financiador = db.query(Financiador).get(financiador_id)
 
-    # ── 💰 precio de cesión ─────────────────────────────────────────
-    # descuento = monto * (tasa_total / 100) * (dias / 30)
-    descuento = monto * (tasa_total / 100) * (dias_anticipacion / 30)   # ✅ usa tasa_total
-    precio_cesion = monto - descuento - comision_flat                   # ✅ usa monto ya definido
-    # ----------------------------------------------------------------
+    monto = factura.monto
+    tasa_total = tasa_interes + financiador.costo_fondos_mensual
+    descuento = monto * (tasa_total / 100) * (dias_anticipacion / 30)
+    precio_cesion = monto - descuento - comision_flat
 
     nueva = OfertaFinanciamiento(
         factura_id=factura_id,
@@ -288,7 +267,7 @@ def registrar_oferta(
     db.add(nueva)
     db.commit()
 
-    return RedirectResponse(url="/financiador/marketplace", status_code=303)
+    return RedirectResponse("/financiador/marketplace", 303)
 
 @router.post("/actualizar-oferta/{oferta_id}")
 def actualizar_oferta(
@@ -308,24 +287,14 @@ def actualizar_oferta(
 
     return RedirectResponse(f"/financiador/ver-oferta/{oferta_id}", 303)
 
-# --- NUEVA RUTA: ver oferta (solo lectura) -------------------
 @router.get("/ver-oferta/{oferta_id}")
 def ver_oferta(oferta_id: int, request: Request, db: Session = Depends(get_db)):
     oferta = db.query(OfertaFinanciamiento).get(oferta_id)
-    if not oferta:
-        raise HTTPException(status_code=404, detail="Oferta no encontrada")
+    if not oferta or oferta.financiador_id != request.session.get("financiador_id"):
+        raise HTTPException(status_code=403)
 
-    # seguridad: sólo el dueño puede verla
-    if oferta.financiador_id != request.session.get("financiador_id"):
-        raise HTTPException(status_code=403, detail="No autorizado")
-
-    factura = oferta.factura
-    return templates.TemplateResponse(
-        "ver_oferta.html",
-        {
-            "request": request,
-            "factura": factura,
-            "oferta": oferta
-        }
-    )
-
+    return templates.TemplateResponse("ver_oferta.html", {
+        "request": request,
+        "factura": oferta.factura,
+        "oferta": oferta
+    })

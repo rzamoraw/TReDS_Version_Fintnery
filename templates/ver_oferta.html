@@ -11,8 +11,9 @@
 </ul>
 
 <table class="table">
-  <tr><th>Tasa interés (%)</th><td>{{ oferta.tasa_interes }}</td></tr>
+  <tr><th>Tasa interés (%)</th><td>{{ '%.2f' % oferta.tasa_interes }}</td></tr>
   <tr><th>Comisión flat</th><td>
+  <tr><th>Costo fondos (% mensual)</th><td>{{ '%.2f' % oferta.financiador.costo_fondos_mensual }}</td></tr>
         {% if oferta.comision_flat %}
             ${{ "{:,.0f}".format(oferta.comision_flat) }}
         {% else %}-{% endif %}

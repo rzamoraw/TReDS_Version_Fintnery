@@ -3,67 +3,73 @@
 {% block title %}Facturas Recibidas{% endblock %}
 
 {% block content %}
-<h2>Facturas Recibidas</h2>
-
-{% if request.query_params.get('msg') == 'fecha_actualizada' %}
-    <div class="alert alert-success" role="alert">
-        ✅ Fecha de vencimiento actualizada correctamente.
+<div class="container mt-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Facturas Recibidas</h2>
+        <a href="/pagador/logout" class="btn btn-outline-secondary">Cerrar sesión</a>
     </div>
-{% endif %}
 
+    {% if request.query_params.get('msg') == 'fecha_actualizada' %}
+        <div class="alert alert-success" role="alert">
+            ✅ Fecha de vencimiento actualizada correctamente.
+        </div>
+    {% endif %}
 
-{% if facturas %}
-<table class="table">
-    <thead>
-        <tr>
-            <th>Folio</th>
-            <th>Emisor</th>
-            <th>Receptor</th>
-            <th>Monto</th>
-            <th>Fecha Emisión</th>
-            <th>Fecha Vencimiento</th>
-            <th>Estado</th>
-            <th>Acciones</th>
-        </tr>
-    </thead>
-    <tbody>
-    {% for factura in facturas %}
-    <tr>
-        <td>{{ factura.folio }}</td>
-        <td>{{ factura.razon_social_emisor }}</td>
-        <td>{{ factura.razon_social_receptor }}</td>
-        <td>${{ "{:,.0f}".format(factura.monto) }}</td>
-        <td>{{ factura.fecha_emision }}</td>
-        <td>
-            {% if factura.estado_dte == "Confirmación solicitada al pagador" %}
-                <form method="post" action="/pagador/editar-vencimiento/{{ factura.id }}">
-                <input type="date" name="nueva_fecha_vencimiento" value="{{ factura.fecha_vencimiento }}">
-                <button type="submit" class="btn btn-warning btn-sm">Actualizar</button>
-            </form>
-        {% else %}
-            {{ factura.fecha_vencimiento.strftime('%Y-%m-%d') if factura.fecha_vencimiento else "Sin fecha" }}
-        {% endif %}
-    </td>
-        <td>{{ factura.estado_dte }}</td>
-        <td>
-            {% if factura.estado_dte == "Confirmación solicitada al pagador" %}
-                <form method="post" action="/pagador/confirmar-factura/{{ factura.id }}" style="display:inline">
-                    <button type="submit" class="btn btn-success btn-sm">Confirmar</button>
-                </form>
-                <form method="post" action="/pagador/rechazar-factura/{{ factura.id }}" style="display:inline">
-                    <button type="submit" class="btn btn-danger btn-sm">Rechazar</button>
-                </form>
-            {% else %}
-                <span class="text-muted">Sin acciones</span>
-            {% endif %}
-        </td>
-    </tr>
-    {% endfor %}
-</tbody>
-</table>
-{% else %}
-<p>No se han recibido facturas.</p>
-{% endif %}
-
-<a href="/pagador/logout" class="btn btn-secondary mt-3">Cerrar sesión</a>
+    {% if facturas %}
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover bg-white">
+            <thead class="table-light">
+                <tr>
+                    <th>Folio</th>
+                    <th>Emisor</th>
+                    <th>Receptor</th>
+                    <th>Monto</th>
+                    <th>Fecha Emisión</th>
+                    <th>Fecha Vencimiento</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for factura in facturas %}
+                <tr>
+                    <td>{{ factura.folio }}</td>
+                    <td>{{ factura.razon_social_emisor }}</td>
+                    <td>{{ factura.razon_social_receptor }}</td>
+                    <td>${{ "{:,.0f}".format(factura.monto) }}</td>
+                    <td>{{ factura.fecha_emision }}</td>
+                    <td>
+                        {% if factura.estado_dte == "Confirmación solicitada al pagador" %}
+                            <form method="post" action="/pagador/editar-vencimiento/{{ factura.id }}" class="d-inline">
+                                <input type="date" name="nueva_fecha_vencimiento" value="{{ factura.fecha_vencimiento }}" class="form-control form-control-sm d-inline w-auto">
+                                <button type="submit" class="btn btn-sm btn-warning">Actualizar</button>
+                            </form>
+                        {% else %}
+                            {{ factura.fecha_vencimiento.strftime('%Y-%m-%d') if factura.fecha_vencimiento else "Sin fecha" }}
+                        {% endif %}
+                    </td>
+                    <td>{{ factura.estado_dte }}</td>
+                    <td>
+                        {% if factura.estado_dte == "Confirmación solicitada al pagador" %}
+                            <form method="post" action="/pagador/confirmar-factura/{{ factura.id }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-success">Confirmar</button>
+                            </form>
+                            <form method="post" action="/pagador/rechazar-factura/{{ factura.id }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-danger">Rechazar</button>
+                            </form>
+                        {% else %}
+                            <span class="text-muted">Sin acciones</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info text-center">
+        No se han recibido facturas.
+    </div>
+    {% endif %}
+</div>
 {% endblock %}
