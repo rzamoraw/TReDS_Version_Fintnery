@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy import Date, Boolean
+from sqlalchemy import cast
+from sqlalchemy.orm import foreign
 
 class Proveedor(Base):
     __tablename__ = "proveedores"
@@ -92,6 +94,12 @@ class FacturaDB(Base):
     pagador = relationship("Pagador", back_populates="facturas")
 
     ofertas = relationship("OfertaFinanciamiento", back_populates="factura")
+
+    financiador = relationship(
+        "Financiador",
+        primaryjoin=Financiador.id == foreign(cast(financiador_adjudicado, Integer)), viewonly=True,
+        uselist=False,
+    )
 
 class OfertaFinanciamiento(Base):
     __tablename__ = "ofertas_financiamiento"

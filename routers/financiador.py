@@ -70,6 +70,15 @@ def login_financiador(
             "request": request,
             "error": "Usuario o clave incorrectos"
         })
+    
+# ──────────────────────────────── Logout ────────────────────────────────
+@router.get("/logout")
+def logout_financiador(request: Request):
+    request.session.clear()           # elimina todos los datos de sesión
+    return RedirectResponse(
+        url="/financiador/login?msg=logout",      # vuelve a la pantalla de login
+        status_code=303
+    )   
 
     # ─── guardar sesión ───
     request.session["financiador_id"] = financiador.id
@@ -113,37 +122,66 @@ def ver_marketplace(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/financiador/login", 303)
 
     financiador = db.query(Financiador).get(financiador_id)
-    hoy = date.today()                              # 🆕
+    hoy = date.today()
 
-    # Comercial bloqueado si admin no cargó hoy
-    if (not financiador.es_admin) and (financiador.fecha_costo_fondos != hoy):   # 🆕
+    # ── Control de costo-de-fondos ───────────────────────────────────────────
+    if not financiador.es_admin and financiador.fecha_costo_fondos != hoy:
         raise HTTPException(
             status_code=403,
-            detail="Costo de fondos no disponible todavía. Intente más tarde."
+            detail="Costo de fondos no disponible todavía. Intente más tarde.",
         )
-
-    # Admin forzado a cargar antes de acceder
-    if financiador.es_admin and financiador.fecha_costo_fondos != hoy:           # 🆕
+    if financiador.es_admin and financiador.fecha_costo_fondos != hoy:
         return RedirectResponse("/financiador/costo-fondos", 303)
 
-    facturas = db.query(FacturaDB).filter(
-        FacturaDB.estado_dte == "Confirming solicitado",
-        FacturaDB.financiador_adjudicado.is_(None)
-    ).all()
+    # ── 1) Todavía disponibles ──────────────────────────────────────────────
+    disponibles = (
+        db.query(FacturaDB)
+        .filter(
+            FacturaDB.estado_dte == "Confirming solicitado",
+            FacturaDB.financiador_adjudicado.is_(None),
+        )
+        .all()
+    )
 
+    # ── 2) Ya adjudicadas por ESTE financiador ──────────────────────────────
+    mias = (
+        db.query(FacturaDB)
+        .filter(
+            FacturaDB.financiador_adjudicado == str(financiador_id),
+            FacturaDB.estado_dte == "Confirming adjudicado",
+        )
+        .all()
+    )
+
+    # ── 3) Adjudicadas por OTRO financiador ────────────────────────────────
+    otras = (
+        db.query(FacturaDB)
+        .filter(
+            FacturaDB.estado_dte == "Confirming adjudicado",
+            FacturaDB.financiador_adjudicado != str(financiador_id),
+        )
+        .all()
+    )
+
+    # Mapear ofertas propias por factura
     ofertas_propias = {
         o.factura_id: o
         for o in db.query(OfertaFinanciamiento)
-                   .filter_by(financiador_id=financiador_id)
-                   .all()
+        .filter_by(financiador_id=financiador_id)
+        .all()
     }
 
-    return templates.TemplateResponse("marketplace_financiador.html", {
-        "request": request,
-        "facturas": facturas,
-        "ofertas_propias": ofertas_propias,
-        "financiador_nombre": financiador.nombre
-    })
+    return templates.TemplateResponse(
+        "marketplace_financiador.html",
+        {
+            "request": request,
+            "financiador_nombre": financiador.nombre,
+            "disponibles": disponibles,
+            "mias": mias,
+            "otras": otras,
+            "ofertas_propias": ofertas_propias,
+        },
+    )
 
 # ──────────────────────────────── Administración ────────────────────────────────
 @router.get("/usuarios")

@@ -316,7 +316,7 @@ def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_d
           .update({"estado": "No adjudicada"})
     )
 
-    factura.financiador_adjudicado = oferta.financiador_id
+    factura.financiador_adjudicado = str(oferta.financiador_id)
     factura.estado_dte = "Confirming adjudicado"
     db.commit()
 

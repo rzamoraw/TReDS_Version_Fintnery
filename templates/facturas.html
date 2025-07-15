@@ -139,6 +139,13 @@
                                class="btn btn-sm btn-outline-primary ms-2">
                                 Ver&nbsp;ofertas
                             </a>
+                        {% elif factura.estado_dte == "Confirming adjudicado" %}
+                            <span class="text-success">Confirming adjudicado</span><br> 
+                            {% if factura.financiador %}   
+                            <small class="text-muted">
+                                Financiador:&nbsp;{{ factura.financiador.nombre }}
+                            </small>
+                        {% endif %}    
                         {% else %}
                             {{ factura.estado_dte }}
                         {% endif %}
