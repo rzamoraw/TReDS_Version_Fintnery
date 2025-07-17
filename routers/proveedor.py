@@ -184,7 +184,7 @@ async def subir_factura_archivo(
             # Validación de consistencia con el proveedor logeado
             if rut_emisor != proveedor.rut:
                 errores.append(f"Factura folio {folio} descartada: RUT emisor ({rut_emisor}) no coincide con proveedor logeado ({proveedor.rut})")
-            continue
+                continue
 
             duplicada = db.query(FacturaDB).filter_by(
                 rut_emisor=rut_emisor, rut_receptor=rut_receptor, folio=folio

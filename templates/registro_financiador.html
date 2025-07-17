@@ -21,21 +21,30 @@
                 </div>
                 <div class="mb-3">
                     <label for="clave" class="form-label">Contraseña</label>
-                    <input type="password" class="form-control" id="clave" name="clave" required>
+                    <input type="password" class="form-control" id="clave" name="clave" required autocomplete="off">
                 </div>
+
+                {% if fondos %}
+                    <div class="mb-3">
+                        <label for="fondo_id" class="form-label">Selecciona Fondo</label>
+                        <select class="form-select" id="fondo_id" name="fondo_id" required>
+                            <option value="" disabled selected>-- Selecciona un fondo --</option>
+                            {% for fondo in fondos %}
+                                <option value="{{ fondo.id }}">{{ fondo.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        No hay fondos disponibles. Contacta a soporte o al administrador.
+                    </div>
+                {% endif %}
+
                 <div class="mb-3">
-                    <label for="fondo_id" class="form-label">Selecciona Fondo</label>
-                    <select class="form-select" id="fondo_id" name="fondo_id" required>
-                        <option value="" disabled selected>-- Selecciona un fondo --</option>
-                        {% for fondo in fondos %}
-                            <option value="{{ fondo.id }}">{{ fondo.nombre }}</option>
-                        {% endfor %}
-                    </select>
+                    <label for="admin_key" class="form-label">Clave maestra (si aplica)</label>
+                    <input type="password" class="form-control" id="admin_key" name="admin_key" placeholder="Clave maestra (si aplica)" autocomplete="off">
                 </div>
-                <div class="mb-3">
-                    <label for="admin_key" class="form-label">Clave de administrador (opcional)</label>
-                    <input type="password" class="form-control" id="admin_key" name="admin_key" placeholder="Solo si eres administrador">
-                </div>
+
                 <button type="submit" class="btn btn-primary">Registrarse</button>
             </form>
             <p class="mt-3">¿Ya tienes cuenta? <a href="/financiador/login">Inicia sesión</a></p>

@@ -6,6 +6,10 @@ from fastapi import Query
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from datetime import date, datetime          # ← date ya estaba, datetime seguía
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from database import SessionLocal
 from models import Financiador, FacturaDB, OfertaFinanciamiento, Fondo
@@ -28,14 +32,17 @@ def _solo_admin(fin: Financiador):
         raise HTTPException(status_code=403, detail="Solo administradores")
 
 # ──────────────────────────────── Registro/Login ────────────────────────────────
+# ──────────────────────────────── GET: Registro Financiador ────────────────────────────────
 @router.get("/registro")
 def mostrar_formulario_registro(request: Request, db: Session = Depends(get_db)):
-    fondos = db.query(Fondo).filter(Fondo.activo == True).order_by(Fondo.nombre).all()
+    fondos = db.query(Fondo).filter(Fondo.activo == True).all()
     return templates.TemplateResponse("registro_financiador.html", {
         "request": request,
         "fondos": fondos
     })
 
+
+# ──────────────────────────────── POST: Registro Financiador ────────────────────────────────
 @router.post("/registro")
 def registrar_financiador(
     request: Request,
@@ -48,33 +55,29 @@ def registrar_financiador(
 ):
     existente = db.query(Financiador).filter_by(usuario=usuario).first()
     if existente:
-        return templates.TemplateResponse(
-            "registro_financiador.html",
-            {"request": request, "error": "El usuario ya existe."}
-        )
+        fondos = db.query(Fondo).filter(Fondo.activo == True).all()
+        return templates.TemplateResponse("registro_financiador.html", {
+            "request": request,
+            "error": "El usuario ya existe.",
+            "fondos": fondos
+        })
 
-    clave_maestra = os.getenv("ADMIN_MASTER_KEY")
+    clave_maestra = os.getenv("ADMIN_ACCESS_KEY")
     es_admin = admin_key == clave_maestra if admin_key else False
-
-    fondo = db.query(Fondo).get(fondo_id)
-    if not fondo:
-        return templates.TemplateResponse(
-            "registro_financiador.html",
-            {"request": request, "error": "Fondo no válido."}
-        )
 
     clave_hash = pwd_context.hash(clave)
     nuevo = Financiador(
         nombre=nombre,
         usuario=usuario,
         clave_hash=clave_hash,
-        es_admin=es_admin,
-        fondo_id=fondo.id
+        fondo_id=fondo_id,
+        es_admin=es_admin
     )
     db.add(nuevo)
     db.commit()
 
     return RedirectResponse(url="/financiador/marketplace", status_code=303)
+
 
 @router.get("/login")
 def mostrar_formulario_login(request: Request):
