@@ -24,6 +24,16 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from database import Base
+# ⚠️ Importa explícitamente todos los modelos que quieres que Alembic reconozca
+from models import (
+    Proveedor,
+    Pagador,
+    CondicionesPorPagador,
+    Fondo,
+    Financiador,
+    FacturaDB,
+    OfertaFinanciamiento
+)
 
 target_metadata = Base.metadata
 

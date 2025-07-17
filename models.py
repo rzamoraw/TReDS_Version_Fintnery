@@ -43,6 +43,16 @@ class CondicionesPorPagador(Base):
 
     financiador = relationship("Financiador", back_populates="condiciones")
 
+class Fondo(Base):
+    __tablename__ = "fondos"
+
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String, nullable=False)
+    descripcion = Column(String)
+    activo = Column(Boolean, default=True)
+
+    financiadores = relationship("Financiador", back_populates="fondo")
+
 class Financiador(Base):
     __tablename__ = "financiadores"
 
@@ -50,6 +60,9 @@ class Financiador(Base):
     nombre = Column(String, nullable=False)
     usuario = Column(String, unique=True, index=True, nullable=False)
     clave_hash = Column(String, nullable=False)
+
+    fondo_id = Column(Integer, ForeignKey("fondos.id"), nullable=False)
+    fondo = relationship("Fondo", back_populates="financiadores")
 
     # ←─ NUEVO: indica si el usuario es administrador dentro del rol financiador
     es_admin = Column(Boolean, default=False) 

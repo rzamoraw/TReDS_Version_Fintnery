@@ -5,6 +5,14 @@
 <div class="container mt-5">
   <h2 class="mb-4">Marketplace – Facturas en Confirming</h2>
 
+{% if request.session.get("es_admin") %}
+  <div class="mb-3">
+    <a href="/financiador/usuarios" class="btn btn-outline-dark btn-sm">
+      Administrar Usuarios
+    </a>
+  </div>
+{% endif %}
+
   <!-- ──────── DISPONIBLES ──────── -->
   {% if disponibles %}
   <h4 class="mt-4">Facturas Disponibles</h4>

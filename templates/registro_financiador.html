@@ -7,6 +7,9 @@
     <div class="row justify-content-center">
         <div class="col-md-6">
             <h2 class="mb-4">Registro de Financiador</h2>
+            {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+            {% endif %}
             <form method="post" action="/financiador/registro">
                 <div class="mb-3">
                     <label for="nombre" class="form-label">Nombre</label>
@@ -19,6 +22,19 @@
                 <div class="mb-3">
                     <label for="clave" class="form-label">Contraseña</label>
                     <input type="password" class="form-control" id="clave" name="clave" required>
+                </div>
+                <div class="mb-3">
+                    <label for="fondo_id" class="form-label">Selecciona Fondo</label>
+                    <select class="form-select" id="fondo_id" name="fondo_id" required>
+                        <option value="" disabled selected>-- Selecciona un fondo --</option>
+                        {% for fondo in fondos %}
+                            <option value="{{ fondo.id }}">{{ fondo.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="admin_key" class="form-label">Clave de administrador (opcional)</label>
+                    <input type="password" class="form-control" id="admin_key" name="admin_key" placeholder="Solo si eres administrador">
                 </div>
                 <button type="submit" class="btn btn-primary">Registrarse</button>
             </form>

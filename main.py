@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
+from fastapi.staticfiles import StaticFiles  # ✅ Añadir esto
 from dotenv import load_dotenv
 import os
 
@@ -19,6 +20,10 @@ load_dotenv()
 
 # 🚀 Crear aplicación
 app = FastAPI()
+
+# ✅ Montar archivos estáticos
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # 🔐 Middleware de sesión con clave segura desde .env
 SECRET_KEY = os.getenv("SECRET_KEY", "!defaultsecret")

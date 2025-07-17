@@ -104,16 +104,22 @@ def ver_facturas_pagador(request: Request, db: Session = Depends(get_db)):
         request.session.clear()
         return RedirectResponse(url="/pagador/login", status_code=303)
 
-    facturas = db.query(FacturaDB).filter(
+    facturas_pendientes = db.query(FacturaDB).filter(
         FacturaDB.rut_receptor == pagador.rut,
         FacturaDB.estado_dte == "Confirmación solicitada al pagador"
+    ).all()
+
+    facturas_gestionadas = db.query(FacturaDB).filter(
+        FacturaDB.rut_receptor == pagador.rut,
+        FacturaDB.estado_dte.in_(["Confirmada por pagador", "Rechazada por pagador"])
     ).all()
 
     return templates.TemplateResponse(
         "facturas_pagador.html",
         {
             "request": request,
-            "facturas": facturas,
+            "facturas_pendientes": facturas_pendientes,
+            "facturas_gestionadas": facturas_gestionadas,
             "pagador_nombre": pagador.nombre
         }
     )

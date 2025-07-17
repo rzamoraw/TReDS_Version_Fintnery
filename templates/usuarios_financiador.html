@@ -1,53 +1,46 @@
 {% extends "base.html" %}
-{% block title %}Usuarios Financiador{% endblock %}
+
+{% block title %}Administración de Usuarios{% endblock %}
 
 {% block content %}
 <div class="container mt-5">
-  <h2 class="mb-4">Usuarios Financiador</h2>
+    <h2 class="mb-4">Usuarios del Financiador: {{ financiador_nombre }}</h2>
 
-  <div class="alert alert-info" role="alert">
-      Recuerda: al menos un usuario debe estar marcado como <strong>Admin</strong> para poder cargar el <a href="/financiador/costo-fondos" class="alert-link">Costo&nbsp;de&nbsp;Fondos</a> diario.
-  </div>
-
-  <table class="table table-bordered table-hover">
-    <thead class="table-light">
-      <tr>
-          <th>ID</th>
-          <th>Nombre</th>
-          <th>Usuario</th>
-          <th>Admin</th>
-          <th>Acción</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for u in usuarios %}
-      <tr>
-        <td>{{ u.id }}</td>
-        <td>{{ u.nombre }}</td>
-        <td>{{ u.usuario }}</td>
-        <td>
-          {% if u.es_admin %}
-            <span class="badge bg-success">Sí</span>
-          {% else %}
-            <span class="badge bg-secondary">No</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if u.id != request.session.get('financiador_id') %}
-          <form method="post" action="/financiador/usuarios/toggle-admin/{{ u.id }}" class="d-inline">
-            <button class="btn btn-sm btn-outline-primary">
-              {% if u.es_admin %}Quitar admin{% else %}Hacer admin{% endif %}
-            </button>
-          </form>
-          {% else %}
-            <em>(tú)</em>
-          {% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-
-  <a href="/financiador/marketplace" class="btn btn-secondary mt-3">Volver</a>
-</div>
-{% endblock %}
+    <table class="table table-bordered table-hover">
+        <thead class="table-primary">
+            <tr>
+                <th>ID</th>
+                <th>Usuario</th>
+                <th>Nombre</th>
+                <th>Rol</th>
+                <th>Acción</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in usuarios %}
+                <tr>
+                    <td>{{ u.id }}</td>
+                    <td>{{ u.usuario }}</td>
+                    <td>{{ u.nombre }}</td>
+                    <td>
+                        {% if u.es_admin %}
+                            <span class="badge bg-success">Administrador</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Comercial</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if u.id != request.session.get('financiador_id') %}
+                            <form method="post" action="/financiador/usuarios/toggle-admin/{{ u.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                    {% if u.es_admin %}Degradar{% else %}Promover{% endif %}
+                                </button>
+                            </form>
+                        {% else %}
+                            <span class="text-muted">Tú mismo</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>

@@ -2,12 +2,13 @@
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
+from fastapi import Query
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from datetime import date, datetime          # ← date ya estaba, datetime seguía
 
 from database import SessionLocal
-from models import Financiador, FacturaDB, OfertaFinanciamiento
+from models import Financiador, FacturaDB, OfertaFinanciamiento, Fondo
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -28,8 +29,12 @@ def _solo_admin(fin: Financiador):
 
 # ──────────────────────────────── Registro/Login ────────────────────────────────
 @router.get("/registro")
-def mostrar_formulario_registro(request: Request):
-    return templates.TemplateResponse("registro_financiador.html", {"request": request})
+def mostrar_formulario_registro(request: Request, db: Session = Depends(get_db)):
+    fondos = db.query(Fondo).filter(Fondo.activo == True).order_by(Fondo.nombre).all()
+    return templates.TemplateResponse("registro_financiador.html", {
+        "request": request,
+        "fondos": fondos
+    })
 
 @router.post("/registro")
 def registrar_financiador(
@@ -37,20 +42,38 @@ def registrar_financiador(
     nombre: str = Form(...),
     usuario: str = Form(...),
     clave: str = Form(...),
+    fondo_id: int = Form(...),
+    admin_key: str = Form(None),
     db: Session = Depends(get_db)
 ):
-    # ── NUEVO: verificar si el usuario ya existe ──────────────────
     existente = db.query(Financiador).filter_by(usuario=usuario).first()
     if existente:
         return templates.TemplateResponse(
             "registro_financiador.html",
             {"request": request, "error": "El usuario ya existe."}
         )
-    # ──────────────────────────────────────────────────────────────
+
+    clave_maestra = os.getenv("ADMIN_MASTER_KEY")
+    es_admin = admin_key == clave_maestra if admin_key else False
+
+    fondo = db.query(Fondo).get(fondo_id)
+    if not fondo:
+        return templates.TemplateResponse(
+            "registro_financiador.html",
+            {"request": request, "error": "Fondo no válido."}
+        )
+
     clave_hash = pwd_context.hash(clave)
-    nuevo = Financiador(nombre=nombre, usuario=usuario, clave_hash=clave_hash)
+    nuevo = Financiador(
+        nombre=nombre,
+        usuario=usuario,
+        clave_hash=clave_hash,
+        es_admin=es_admin,
+        fondo_id=fondo.id
+    )
     db.add(nuevo)
     db.commit()
+
     return RedirectResponse(url="/financiador/marketplace", status_code=303)
 
 @router.get("/login")
@@ -62,41 +85,45 @@ def login_financiador(
     request: Request,
     usuario: str = Form(...),
     clave: str = Form(...),
+    admin: str = Query(default="false"),  # viene desde ?admin=true
     db: Session = Depends(get_db)
 ):
+    modo_admin = admin == "true"
+
     financiador = db.query(Financiador).filter(Financiador.usuario == usuario).first()
     if not financiador or not pwd_context.verify(clave, financiador.clave_hash):
         return templates.TemplateResponse("login_financiador.html", {
             "request": request,
             "error": "Usuario o clave incorrectos"
         })
-    
-# ──────────────────────────────── Logout ────────────────────────────────
-@router.get("/logout")
-def logout_financiador(request: Request):
-    request.session.clear()           # elimina todos los datos de sesión
-    return RedirectResponse(
-        url="/financiador/login?msg=logout",      # vuelve a la pantalla de login
-        status_code=303
-    )   
 
-    # ─── guardar sesión ───
+    # ─── Si intenta entrar como admin pero no lo es ───
+    if modo_admin and not financiador.es_admin:
+        return templates.TemplateResponse("login_financiador.html", {
+            "request": request,
+            "error": "No tienes permisos de administrador."
+        })
+
+    # ─── Guardar sesión ───
     request.session["financiador_id"] = financiador.id
     request.session["es_admin"] = financiador.es_admin
 
-    hoy = date.today()                              # 🆕
-    # ADMIN: forzar carga diaria
+    hoy = date.today()
+
+    # ─── ADMIN: forzar carga diaria ───
     if financiador.es_admin:
-        if financiador.fecha_costo_fondos != hoy:   # 🆕
+        if financiador.fecha_costo_fondos != hoy:
             return RedirectResponse("/financiador/costo-fondos", 303)
         return RedirectResponse("/financiador/marketplace", 303)
 
-    # COMERCIAL: bloquear si admin aún no cargó hoy
-    if financiador.fecha_costo_fondos != hoy:       # 🆕
+    # ─── USUARIO COMERCIAL: bloqueo si admin no cargó hoy ───
+    if financiador.fecha_costo_fondos != hoy:
         return templates.TemplateResponse("login_financiador.html", {
             "request": request,
             "error": "El administrador aún no carga el costo de fondos hoy."
         })
+
+    # ─── Acceso permitido ───
     return RedirectResponse("/financiador/marketplace", 303)
 
 @router.get("/inicio")

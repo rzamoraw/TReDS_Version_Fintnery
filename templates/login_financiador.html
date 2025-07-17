@@ -6,20 +6,34 @@
 <div class="container mt-5" style="max-width: 500px;">
     <h2 class="mb-4">Login Financiador</h2>
 
-    {# ───────── Mensaje de logout ───────── #}
+    {% if request.query_params.get('admin') == 'true' %}
+        <div class="alert alert-info mt-4">
+            Ingresa tus credenciales de administrador para configurar condiciones del día.
+        </div>
+    {% endif %}
+
+    <div class="text-center mt-3">
+        <a href="/financiador/login?admin=true" class="btn btn-outline-primary btn-sm">
+            Ingresar como administrador
+        </a>
+    </div>
+
     {% if request.query_params.get('msg') == 'logout' %}
-        <div class="alert alert-success">
+        <div class="alert alert-success mt-3">
             Sesión cerrada con éxito.
         </div>
     {% endif %}
 
-    {# ───────── Posibles errores de login ───────── #}
     {% if error %}
-        <div class="alert alert-danger">{{ error }}</div>
+        <div class="alert alert-danger mt-3">{{ error }}</div>
     {% endif %}
 
     <form method="post" action="/financiador/login">
-        <div class="mb-3">
+        {% if request.query_params.get('admin') == 'true' %}
+            <input type="hidden" name="admin" value="true">
+        {% endif %}
+
+        <div class="mb-3 mt-3">
             <label for="usuario" class="form-label">Usuario</label>
             <input type="text" id="usuario" name="usuario" class="form-control" required>
         </div>

@@ -108,7 +108,9 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/proveedor/login", 303)
 
     proveedor = db.query(Proveedor).get(prov_id)
-    nombre = proveedor.nombre if proveedor else "Desconocido"
+    if not proveedor:
+        return RedirectResponse("/proveedor/login", 303)
+    nombre = proveedor.nombre
 
     # traemos facturas + ofertas en una sola consulta
     facturas = (
@@ -168,7 +170,7 @@ async def subir_factura_archivo(
             "mensaje": "Solo se permiten archivos XML o ZIP.",
             "proveedor_nombre": proveedor_nombre
         })
-
+  
     errores = []
     for nombre in archivos_xml:
         ruta = os.path.join(UPLOAD_FOLDER, nombre)
@@ -178,6 +180,11 @@ async def subir_factura_archivo(
             folio = int(root.find(".//Folio").text)
             rut_emisor = root.find(".//RUTEmisor").text
             rut_receptor = root.find(".//RUTRecep").text
+
+            # Validación de consistencia con el proveedor logeado
+            if rut_emisor != proveedor.rut:
+                errores.append(f"Factura folio {folio} descartada: RUT emisor ({rut_emisor}) no coincide con proveedor logeado ({proveedor.rut})")
+            continue
 
             duplicada = db.query(FacturaDB).filter_by(
                 rut_emisor=rut_emisor, rut_receptor=rut_receptor, folio=folio
