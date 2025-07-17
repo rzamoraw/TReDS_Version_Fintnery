@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+templates_middle = Jinja2Templates(directory="templates/middle")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 UPLOAD_FOLDER = "uploads"
@@ -28,8 +29,7 @@ def get_db():
 # ─────────────────────────  Registro / Login  ──────────────────────────
 @router.get("/registro")
 def mostrar_formulario_registro(request: Request):
-    return templates.TemplateResponse("registro_proveedor.html", {"request": request})
-
+    return templates_middle.TemplateResponse("registro_proveedor.html", {"request": request})     
 
 @router.post("/registro")
 def registrar_proveedor(
@@ -42,7 +42,7 @@ def registrar_proveedor(
 ):  
     existente = db.query(Proveedor).filter(Proveedor.usuario == usuario).first()
     if existente:
-        return templates.TemplateResponse("registro_proveedor.html", {"request": request, "error": "El usuario ya existe."})
+        return templates_middle.TemplateResponse("registro_proveedor.html", {"request": request, "error": "El usuario ya existe."})    
 
     clave_hash = pwd_context.hash(clave)
     nuevo = Proveedor(nombre=nombre, rut=rut, usuario=usuario, clave_hash=clave_hash)

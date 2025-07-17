@@ -46,12 +46,15 @@ class CondicionesPorPagador(Base):
 class Fondo(Base):
     __tablename__ = "fondos"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, nullable=False)
     descripcion = Column(String)
     activo = Column(Boolean, default=True)
 
-    financiadores = relationship("Financiador", back_populates="fondo")
+    financiadores = relationship("Financiador", 
+        back_populates="fondo",
+        cascade="all, delete"
+    )
 
 class Financiador(Base):
     __tablename__ = "financiadores"

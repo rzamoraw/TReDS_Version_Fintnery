@@ -161,56 +161,61 @@
             </tbody>
         </table>
     </div>
+<!-- ────── 4. Tabla de ofertas (cuando se selecciona factura) ────── -->
+{% if request.query_params.get('factura_id') %}
+    {% set sel_id = request.query_params.get('factura_id')|int %}
+    {% set ofertas = ofertas_por_factura.get(sel_id, []) %}
 
-    <!-- ────── 4. Tabla de ofertas (cuando se selecciona factura) ────── -->
-    {% if request.query_params.get('factura_id') %}
-        {% set sel_id = request.query_params.get('factura_id')|int %}
-        {% set ofertas = ofertas_por_factura.get(sel_id, []) %}
+    <h4 class="mt-4">Ofertas para la factura #{{ sel_id }}</h4>
 
-        <h4 class="mt-4">Ofertas para la factura #{{ sel_id }}</h4>
-
-        {% if ofertas %}
-            <table class="table table-sm table-bordered">
-                <thead class="table-light">
+    {% if ofertas %}
+        <table class="table table-sm table-bordered">
+            <thead class="table-light">
+            <tr>
+                <th>Financiador</th>
+                <th>Tasa&nbsp;(%)</th>
+                <th>Comisión&nbsp;flat</th>
+                <th>Días ant.</th>
+                <th>Precio&nbsp;cesión</th>
+                <th class="text-center">Acción</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for o in ofertas %}
                 <tr>
-                    <th>Financiador</th>
-                    <th>Tasa&nbsp;(%)</th>
-                    <th>Comisión&nbsp;flat</th>
-                    <th>Días ant.</th>
-                    <th>Precio&nbsp;cesión</th>
-                    <th class="text-center">Acción</th>
+                    <td>
+                        {{ o.financiador.nombre }}<br>
+                        <small class="text-muted">
+                            ({{ o.financiador.fondo.nombre }})
+                        </small>
+                    </td>
+                    <td>{{ '{:,.2f}'.format(o.tasa_interes) }}</td>
+                    <td>{{ '{:,.0f}'.format(o.comision_flat) }}</td>
+                    <td>{{ o.dias_anticipacion }}</td>
+                    <td>
+                        {% if o.precio_cesion is not none %}
+                            ${{ '{:,.0f}'.format(o.precio_cesion) }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <form method="post"
+                              action="/proveedor/aceptar-oferta/{{ o.id }}"
+                              class="d-inline">
+                            <button class="btn btn-sm btn-success">
+                                Aceptar
+                            </button>
+                        </form>
+                    </td>
                 </tr>
-                </thead>
-                <tbody>
-                {% for o in ofertas %}
-                    <tr>
-                        <td>{{ o.financiador.nombre }}</td>
-                        <td>{{ '{:,.2f}'.format(o.tasa_interes) }}</td>
-                        <td>{{ '{:,.0f}'.format(o.comision_flat) }}</td>
-                        <td>{{ o.dias_anticipacion }}</td>
-                        <td>
-                            {% if o.precio_cesion is not none %}
-                                ${{ '{:,.0f}'.format(o.precio_cesion) }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        </td>
-                        <td class="text-center">
-                            <form method="post"
-                                  action="/proveedor/aceptar-oferta/{{ o.id }}"
-                                  class="d-inline">
-                                <button class="btn btn-sm btn-success">
-                                    Aceptar
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        {% else %}
-            <p class="text-muted">No hay ofertas todavía.</p>
-        {% endif %}
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="text-muted">No hay ofertas todavía.</p>
     {% endif %}
+{% endif %}
+    
 </div>
 {% endblock %}

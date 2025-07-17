@@ -10,7 +10,8 @@ from models import Pagador, FacturaDB
 from datetime import datetime
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory="templates")               # login, facturas, inicio...
+templates_middle = Jinja2Templates(directory="templates/middle") # solo para registro
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ───────────── DB Dependency ─────────────
@@ -24,8 +25,7 @@ def get_db():
 # ───────────── Registro / Login ─────────────
 @router.get("/registro")
 def mostrar_formulario_registro(request: Request):
-    return templates.TemplateResponse("registro_pagador.html", {"request": request})
-
+    return templates_middle.TemplateResponse("registro_pagador.html", {"request": request})    
 
 @router.post("/registro")
 def registrar_pagador(

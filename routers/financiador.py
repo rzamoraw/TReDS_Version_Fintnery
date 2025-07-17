@@ -16,6 +16,7 @@ from models import Financiador, FacturaDB, OfertaFinanciamiento, Fondo
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+templates_middle = Jinja2Templates(directory="templates/middle")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ──────────────────────────────── DB dependency ────────────────────────────────
@@ -36,10 +37,10 @@ def _solo_admin(fin: Financiador):
 @router.get("/registro")
 def mostrar_formulario_registro(request: Request, db: Session = Depends(get_db)):
     fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-    return templates.TemplateResponse("registro_financiador.html", {
-        "request": request,
-        "fondos": fondos
-    })
+    return templates_middle.TemplateResponse("registro_financiador.html", {
+    "request": request,
+    "fondos": fondos
+})
 
 
 # ──────────────────────────────── POST: Registro Financiador ────────────────────────────────
@@ -56,11 +57,10 @@ def registrar_financiador(
     existente = db.query(Financiador).filter_by(usuario=usuario).first()
     if existente:
         fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-        return templates.TemplateResponse("registro_financiador.html", {
+        return templates_middle.TemplateResponse("registro_financiador.html", {
             "request": request,
-            "error": "El usuario ya existe.",
             "fondos": fondos
-        })
+})
 
     clave_maestra = os.getenv("ADMIN_ACCESS_KEY")
     es_admin = admin_key == clave_maestra if admin_key else False
