@@ -101,8 +101,8 @@ class FacturaDB(Base):
     modificacion_aceptada_por_proveedor = Column(Boolean, nullable=True, default=None)
     confirming_solicitado = Column(Boolean, default=False)
     origen_confirmacion = Column(String, default="Desconocido")
-    financiador_adjudicado = Column(String, nullable=True)
-
+    financiador_adjudicado = Column(Integer, ForeignKey("financiadores.id"), nullable=True)
+    
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
     proveedor = relationship("Proveedor", back_populates="facturas")
 

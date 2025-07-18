@@ -32,15 +32,17 @@ def _solo_admin(fin: Financiador):
     if not fin.es_admin:
         raise HTTPException(status_code=403, detail="Solo administradores")
 
-# ──────────────────────────────── Registro/Login ────────────────────────────────
 # ──────────────────────────────── GET: Registro Financiador ────────────────────────────────
 @router.get("/registro")
 def mostrar_formulario_registro(request: Request, db: Session = Depends(get_db)):
-    fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-    return templates_middle.TemplateResponse("registro_financiador.html", {
-    "request": request,
-    "fondos": fondos
-})
+    admin_id = request.session.get("admin_fondo_id")
+    if not admin_id:
+        return RedirectResponse("/middle/login", status_code=303)
+    
+    return templates_middle.TemplateResponse("registrar_financiador.html", {
+        "request": request,
+        "fondo": fondo
+    })
 
 
 # ──────────────────────────────── POST: Registro Financiador ────────────────────────────────
@@ -50,33 +52,50 @@ def registrar_financiador(
     nombre: str = Form(...),
     usuario: str = Form(...),
     clave: str = Form(...),
-    fondo_id: int = Form(...),
     admin_key: str = Form(None),
     db: Session = Depends(get_db)
-):
+):  
+    request.session.clear()  # ← 🧹 Limpieza de sesión previa (clave)
+
+    modo_admin = admin == "true"
+
+    # Validar existencia previa
     existente = db.query(Financiador).filter_by(usuario=usuario).first()
     if existente:
-        fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-        return templates_middle.TemplateResponse("registro_financiador.html", {
+        admin_id = request.session.get("admin_fondo_id")
+        fondo = db.query(Fondo).filter(Fondo.admin_id == admin_id).first()
+        return templates_middle.TemplateResponse("registrar_financiador.html", {
             "request": request,
-            "fondos": fondos
-})
+            "fondo": fondo,
+            "error": "El usuario ya existe"
+        })
 
+    # Validar fondo por sesión del admin
+    admin_id = request.session.get("admin_fondo_id")
+    if not admin_id:
+        return RedirectResponse("/middle/login", 303)
+
+    fondo = db.query(Fondo).filter(Fondo.admin_id == admin_id).first()
+    if not fondo:
+        return RedirectResponse("/middle/fondos", 303)
+
+    # Verificar si será administrador
     clave_maestra = os.getenv("ADMIN_ACCESS_KEY")
     es_admin = admin_key == clave_maestra if admin_key else False
 
+    # Crear financiador
     clave_hash = pwd_context.hash(clave)
     nuevo = Financiador(
         nombre=nombre,
         usuario=usuario,
         clave_hash=clave_hash,
-        fondo_id=fondo_id,
+        fondo_id=fondo.id,
         es_admin=es_admin
     )
     db.add(nuevo)
     db.commit()
 
-    return RedirectResponse(url="/financiador/marketplace", status_code=303)
+    return RedirectResponse(url="/financiador/login", status_code=303)
 
 
 @router.get("/login")
@@ -110,6 +129,7 @@ def login_financiador(
     # ─── Guardar sesión ───
     request.session["financiador_id"] = financiador.id
     request.session["es_admin"] = financiador.es_admin
+    request.session["fondo_id"] = financiador.fondo_id  # 👈 ¡CLAVE!
 
     hoy = date.today()
 
@@ -260,7 +280,8 @@ def form_costo_fondos(request: Request, db: Session = Depends(get_db)):
         "request": request,
         "costo_fondos": financiador.costo_fondos_mensual,
         "fecha_costo_fondos": financiador.fecha_costo_fondos,
-        "financiador_nombre": financiador.nombre
+        "financiador_nombre": financiador.nombre,
+        "es_admin": financiador.es_admin  # 👈 Esta línea es la clave
     })
 
 @router.post("/costo-fondos")
@@ -271,16 +292,30 @@ def guardar_costo_fondos(
 ):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
-        return RedirectResponse("/financiador/login", 303)
+        return RedirectResponse(url="/financiador/login", status_code=303)
 
     financiador = db.query(Financiador).get(financiador_id)
-    _solo_admin(financiador)
+    if not financiador:
+        return RedirectResponse(url="/financiador/login", status_code=303)
 
+    # Validación: el costo de fondos no puede ser cero o negativo
+    if nuevo_costo_mensual <= 0:
+        return templates.TemplateResponse("costo_fondos.html", {
+            "request": request,
+            "costo_fondos": financiador.costo_fondos_mensual,
+            "fecha_costo_fondos": financiador.fecha_costo_fondos,
+            "financiador_nombre": financiador.nombre,
+            "es_admin": financiador.es_admin,
+            "error": "⚠️ El costo de fondos debe ser mayor a cero para operar."
+        })
+
+    # Guardar nuevo costo de fondos
     financiador.costo_fondos_mensual = nuevo_costo_mensual
     financiador.fecha_costo_fondos = date.today()
     db.commit()
 
-    return RedirectResponse("/financiador/marketplace", 303)
+    # Redirige siempre a costo-fondos con ?msg=ok (para mostrar opciones)
+    return RedirectResponse("/financiador/costo-fondos?msg=ok", status_code=303)
 
 # ──────────────────────────────── Ofertas ────────────────────────────────
 @router.get("/ofertar/{factura_id}")
@@ -366,3 +401,11 @@ def ver_oferta(oferta_id: int, request: Request, db: Session = Depends(get_db)):
         "factura": oferta.factura,
         "oferta": oferta
     })
+
+# ──────────────────────────────── LogOut ────────────────────────────────
+@router.get("/logout")
+def logout_financiador(request: Request):
+    request.session.clear()
+    response = RedirectResponse("/financiador/login", status_code=303)
+    response.delete_cookie("session")  # 🔐 Fuerza eliminación total de cookie
+    return response
