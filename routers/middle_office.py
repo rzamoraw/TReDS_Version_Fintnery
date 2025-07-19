@@ -110,7 +110,7 @@ def mostrar_formulario_registro_financiador(request: Request, db: Session = Depe
         return RedirectResponse(url="/middle/login", status_code=HTTP_303_SEE_OTHER)
 
     fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-    return templates.TemplateResponse("middle/registrar_financiador.html", {
+    return templates.TemplateResponse("registro_financiador.html", {
         "request": request,
         "fondos": fondos
     })
@@ -149,7 +149,7 @@ def registrar_financiador_desde_middle(
     db.commit()
 
     fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-    return templates.TemplateResponse("middle/registrar_financiador.html", {
+    return templates.TemplateResponse("registro_financiador.html", {
         "request": request,
         "fondos": fondos,
         "success": f"Financiador '{nombre}' registrado exitosamente."

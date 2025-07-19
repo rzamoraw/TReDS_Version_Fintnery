@@ -10,9 +10,10 @@ from models import Pagador, FacturaDB
 from datetime import datetime
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")               # login, facturas, inicio...
-templates_middle = Jinja2Templates(directory="templates/middle") # solo para registro
+templates = Jinja2Templates(directory="templates")
+templates_middle = Jinja2Templates(directory="templates/middle")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 # ───────────── DB Dependency ─────────────
 def get_db():
@@ -22,10 +23,12 @@ def get_db():
     finally:
         db.close()
 
+
 # ───────────── Registro / Login ─────────────
 @router.get("/registro")
 def mostrar_formulario_registro(request: Request):
-    return templates_middle.TemplateResponse("registro_pagador.html", {"request": request})    
+    return templates_middle.TemplateResponse("registro_pagador.html", {"request": request})
+
 
 @router.post("/registro")
 def registrar_pagador(
@@ -111,7 +114,12 @@ def ver_facturas_pagador(request: Request, db: Session = Depends(get_db)):
 
     facturas_gestionadas = db.query(FacturaDB).filter(
         FacturaDB.rut_receptor == pagador.rut,
-        FacturaDB.estado_dte.in_(["Confirmada por pagador", "Rechazada por pagador"])
+        FacturaDB.estado_dte.in_([
+            "Confirmada por pagador",
+            "Rechazada por pagador",
+            "Enviado a confirming",
+            "Confirming adjudicado"
+        ])
     ).all()
 
     return templates.TemplateResponse(
