@@ -38,8 +38,12 @@ def mostrar_formulario_registro(request: Request, db: Session = Depends(get_db))
     admin_id = request.session.get("admin_fondo_id")
     if not admin_id:
         return RedirectResponse("/middle/login", status_code=303)
-    
-    return templates_middle.TemplateResponse("registrar_financiador.html", {
+
+    fondo = db.query(Fondo).filter(Fondo.admin_id == admin_id).first()
+    if not fondo:
+        return RedirectResponse("/middle/fondos", status_code=303)
+
+    return templates.TemplateResponse("registro_financiador.html", {
         "request": request,
         "fondo": fondo
     })
@@ -54,23 +58,19 @@ def registrar_financiador(
     clave: str = Form(...),
     admin_key: str = Form(None),
     db: Session = Depends(get_db)
-):  
-    request.session.clear()  # ← 🧹 Limpieza de sesión previa (clave)
-
-    modo_admin = admin == "true"
-
-    # Validar existencia previa
+):
+    # Validar si el usuario ya existe
     existente = db.query(Financiador).filter_by(usuario=usuario).first()
     if existente:
         admin_id = request.session.get("admin_fondo_id")
         fondo = db.query(Fondo).filter(Fondo.admin_id == admin_id).first()
-        return templates_middle.TemplateResponse("registrar_financiador.html", {
+        return templates.TemplateResponse("registro_financiador.html", {
             "request": request,
             "fondo": fondo,
             "error": "El usuario ya existe"
         })
 
-    # Validar fondo por sesión del admin
+    # Validar sesión activa de administrador
     admin_id = request.session.get("admin_fondo_id")
     if not admin_id:
         return RedirectResponse("/middle/login", 303)
@@ -79,11 +79,11 @@ def registrar_financiador(
     if not fondo:
         return RedirectResponse("/middle/fondos", 303)
 
-    # Verificar si será administrador
+    # Verificar si se usó la clave maestra
     clave_maestra = os.getenv("ADMIN_ACCESS_KEY")
     es_admin = admin_key == clave_maestra if admin_key else False
 
-    # Crear financiador
+    # Crear y guardar el nuevo financiador
     clave_hash = pwd_context.hash(clave)
     nuevo = Financiador(
         nombre=nombre,
@@ -135,6 +135,9 @@ def login_financiador(
 
     # ─── ADMIN: forzar carga diaria ───
     if financiador.es_admin:
+        if modo_admin and financiador.es_admin:
+            request.session["admin_fondo_id"] = financiador.id
+
         if financiador.fecha_costo_fondos != hoy:
             return RedirectResponse("/financiador/costo-fondos", 303)
         return RedirectResponse("/financiador/marketplace", 303)
@@ -243,12 +246,15 @@ def listar_usuarios(request: Request, db: Session = Depends(get_db)):
     admin = db.query(Financiador).get(fid)
     _solo_admin(admin)
 
-    usuarios = db.query(Financiador).order_by(Financiador.id).all()
+    # ✅ Solo usuarios del mismo fondo
+    usuarios = db.query(Financiador).filter_by(fondo_id=admin.fondo_id).all()
+
     return templates.TemplateResponse("usuarios_financiador.html", {
         "request": request,
         "usuarios": usuarios,
         "financiador_nombre": admin.nombre
     })
+
 
 @router.post("/usuarios/toggle-admin/{user_id}")
 def toggle_admin(user_id: int, request: Request, db: Session = Depends(get_db)):
@@ -260,11 +266,46 @@ def toggle_admin(user_id: int, request: Request, db: Session = Depends(get_db)):
     _solo_admin(admin)
 
     usuario = db.query(Financiador).get(user_id)
-    if usuario and usuario.id != admin.id:
+
+    # ⛔ Seguridad: no permitir acciones sobre usuarios de otros fondos
+    if usuario and usuario.id != admin.id and usuario.fondo_id == admin.fondo_id:
         usuario.es_admin = not usuario.es_admin
         db.commit()
 
     return RedirectResponse("/financiador/usuarios", 303)
+
+
+@router.post("/usuarios/crear")
+def crear_usuario(
+    request: Request,
+    nombre: str = Form(...),
+    usuario: str = Form(...),
+    clave: str = Form(...),
+    es_admin: bool = Form(False),
+    db: Session = Depends(get_db)
+):
+    fondo_id = request.session.get("fondo_id")
+    if not fondo_id:
+        return RedirectResponse("/financiador/login", 303)
+
+    # Validación: usuario ya existe
+    existente = db.query(Financiador).filter_by(usuario=usuario).first()
+    if existente:
+        return RedirectResponse("/financiador/usuarios?error=usuario_existente", status_code=303)
+
+    clave_hash = pwd_context.hash(clave)
+
+    nuevo = Financiador(
+        nombre=nombre,
+        usuario=usuario,
+        clave_hash=clave_hash,
+        es_admin=es_admin,
+        fondo_id=fondo_id
+    )
+    db.add(nuevo)
+    db.commit()
+
+    return RedirectResponse("/financiador/usuarios?msg=ok", status_code=303)
 
 # ──────────────────────────────── Costo de fondos ────────────────────────────────
 @router.get("/costo-fondos")

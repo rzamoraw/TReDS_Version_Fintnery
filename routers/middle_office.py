@@ -13,7 +13,10 @@ from utils import pwd_context
 load_dotenv()
 
 router = APIRouter(prefix="/middle", tags=["Middle Office"])
-templates = Jinja2Templates(directory="templates")
+
+# Templates
+templates = Jinja2Templates(directory="templates")                 # Para login, fondos, etc.
+templates_middle = Jinja2Templates(directory="templates/middle")  # Para formularios de registro internos
 
 
 # ─────────────────────── LOGIN ───────────────────────
@@ -55,7 +58,6 @@ def mostrar_formulario_creacion_fondo(request: Request):
         return RedirectResponse(url="/middle/login")
     return templates.TemplateResponse("crear_fondo.html", {"request": request})
 
-
 @router.post("/fondos/crear")
 def crear_fondo(
     request: Request,
@@ -69,7 +71,6 @@ def crear_fondo(
     if request.cookies.get("middle_auth") != "ok":
         return RedirectResponse(url="/middle/login")
 
-    # Validar duplicado de usuario
     existente = db.query(Financiador).filter_by(usuario=usuario_admin).first()
     if existente:
         return templates.TemplateResponse("crear_fondo.html", {
@@ -77,7 +78,6 @@ def crear_fondo(
             "error": "Ese nombre de usuario ya existe. Usa uno diferente."
         })
 
-    # Crear fondo y administrador
     try:
         fondo = Fondo(nombre=nombre_fondo, descripcion=descripcion, activo=True)
         db.add(fondo)
@@ -110,7 +110,7 @@ def mostrar_formulario_registro_financiador(request: Request, db: Session = Depe
         return RedirectResponse(url="/middle/login", status_code=HTTP_303_SEE_OTHER)
 
     fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-    return templates.TemplateResponse("registro_financiador.html", {
+    return templates_middle.TemplateResponse("registro_financiador_middle.html", {
         "request": request,
         "fondos": fondos
     })
@@ -131,7 +131,7 @@ def registrar_financiador_desde_middle(
     existente = db.query(Financiador).filter_by(usuario=usuario).first()
     if existente:
         fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-        return templates.TemplateResponse("middle/registrar_financiador.html", {
+        return templates_middle.TemplateResponse("registro_financiador_middle.html", {
             "request": request,
             "fondos": fondos,
             "error": "Este usuario ya existe. Usa otro nombre de usuario."
@@ -149,11 +149,14 @@ def registrar_financiador_desde_middle(
     db.commit()
 
     fondos = db.query(Fondo).filter(Fondo.activo == True).all()
-    return templates.TemplateResponse("registro_financiador.html", {
+    return templates_middle.TemplateResponse("registro_financiador_middle.html", {
         "request": request,
         "fondos": fondos,
         "success": f"Financiador '{nombre}' registrado exitosamente."
     })
+
+
+# ─────────────────────── ELIMINAR FONDO ───────────────────────
 
 @router.post("/fondos/eliminar")
 def eliminar_fondo(request: Request, fondo_id: int = Form(...), db: Session = Depends(get_db)):
@@ -167,4 +170,3 @@ def eliminar_fondo(request: Request, fondo_id: int = Form(...), db: Session = De
         return RedirectResponse(url="/middle/fondos?success=Fondo eliminado correctamente", status_code=303)
     else:
         return RedirectResponse(url="/middle/fondos?error=Fondo no encontrado", status_code=303)
-    
