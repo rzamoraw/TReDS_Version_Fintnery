@@ -31,6 +31,7 @@ def validar_acceso(request: Request, clave: str = Form(...)):
     if clave == clave_maestra:
         response = RedirectResponse(url="/middle/fondos", status_code=303)
         response.set_cookie("middle_auth", "ok")
+        response.set_cookie("usuario_admin", "admin")  # ← Aquí defines el usuario admin logueado
         return response
     return templates.TemplateResponse("login_middle.html", {"request": request, "error": "Clave incorrecta"})
 
@@ -109,10 +110,18 @@ def mostrar_formulario_registro_financiador(request: Request, db: Session = Depe
     if request.cookies.get("middle_auth") != "ok":
         return RedirectResponse(url="/middle/login", status_code=HTTP_303_SEE_OTHER)
 
-    fondos = db.query(Fondo).filter(Fondo.activo == True).all()
+    # Buscar el fondo del admin actualmente logueado
+    usuario_admin = request.cookies.get("usuario_admin")
+    admin = db.query(Financiador).filter_by(usuario=usuario_admin, es_admin=True).first()
+
+    if not admin:
+        return templates.TemplateResponse("error.html", {"request": request, "error": "Administrador no encontrado."})
+
+    fondo = db.query(Fondo).filter_by(id=admin.fondo_id).first()
+
     return templates_middle.TemplateResponse("registro_financiador_middle.html", {
         "request": request,
-        "fondos": fondos
+        "fondo": fondo
     })
 
 @router.post("/registrar-financiador")
