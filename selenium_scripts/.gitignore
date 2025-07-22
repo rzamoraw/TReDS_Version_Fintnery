@@ -37,6 +37,9 @@ Thumbs.db
 # Archivos temporales de editor
 *.swp
 *.swo
+# Mac/pyc
+.DS_Store
+__pycache__/
 *.pyc
 =======
 *.pyc

@@ -9,7 +9,6 @@ from datetime import datetime
 import os, zipfile, xml.etree.ElementTree as ET
 from fastapi import HTTPException
 
-
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 templates_middle = Jinja2Templates(directory="templates/middle")
@@ -334,74 +333,3 @@ def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_d
     db.commit()
 
     return RedirectResponse("/proveedor/facturas?msg=oferta_ok", 303)
-
-@router.post("/importar_sii_facturas")
-def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
-    proveedor_id = request.session.get("proveedor_id")
-    if not proveedor_id:
-        return RedirectResponse(url="/proveedor/login", status_code=303)
-
-    proveedor = db.query(Proveedor).get(proveedor_id)
-    if not proveedor:
-        return RedirectResponse(url="/proveedor/login", status_code=303)
-
-    rut = proveedor.rut
-    carpeta = f"descargadas_sii_{rut}"
-    if not os.path.exists(carpeta):
-        raise HTTPException(status_code=404, detail=f"No se encontró la carpeta: {carpeta}")
-
-    errores = []
-    archivos = [f for f in os.listdir(carpeta) if f.endswith(".xml")]
-
-    for nombre in archivos:
-        ruta = os.path.join(carpeta, nombre)
-        try:
-            tree = ET.parse(ruta)
-            root = tree.getroot()
-            folio = int(root.find(".//Folio").text)
-            rut_emisor = root.find(".//RUTEmisor").text
-            rut_receptor = root.find(".//RUTRecep").text
-
-            if rut_emisor != rut:
-                errores.append(f"Factura {folio} descartada: RUT emisor ({rut_emisor}) no coincide con proveedor ({rut})")
-                continue
-
-            duplicada = db.query(FacturaDB).filter_by(
-                rut_emisor=rut_emisor, rut_receptor=rut_receptor, folio=folio
-            ).first()
-            if duplicada:
-                errores.append(f"Factura duplicada: {folio}")
-                continue
-
-            factura = FacturaDB(
-                rut_emisor=rut_emisor,
-                rut_receptor=rut_receptor,
-                tipo_dte=root.find(".//TipoDTE").text,
-                folio=folio,
-                monto=int(root.find(".//MntTotal").text),
-                razon_social_emisor=root.find(".//RznSoc").text,
-                razon_social_receptor=root.find(".//RznSocRecep").text,
-                fecha_emision=datetime.strptime(root.find(".//FchEmis").text, "%Y-%m-%d").date(),
-                fecha_vencimiento=datetime.strptime(root.find(".//FchVenc").text, "%Y-%m-%d").date(),
-                fecha_vencimiento_original=datetime.strptime(root.find(".//FchVenc").text, "%Y-%m-%d").date(),
-                estado_dte="Cargada",
-                confirming_solicitado=False,
-                origen_confirmacion="Proveedor",
-                proveedor_id=proveedor_id
-            )
-            db.add(factura)
-            db.commit()
-
-        except Exception as e:
-            errores.append(f"Error en {nombre}: {e}")
-
-    facturas = db.query(FacturaDB).filter(FacturaDB.proveedor_id == proveedor_id).all()
-    return templates.TemplateResponse(
-        "facturas.html",
-        {
-            "request": request,
-            "facturas": facturas,
-            "errores": errores or None,
-            "proveedor_nombre": proveedor.nombre
-        }
-    )

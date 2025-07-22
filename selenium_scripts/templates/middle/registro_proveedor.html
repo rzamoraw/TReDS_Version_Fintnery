@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Registro de Proveedor{% endblock %}
+
+{% block content %}
+<h2>Registro de Proveedor</h2>
+
+{% if error %}
+<p style="color:red;">{{ error }}</p>
+{% endif %}
+
+<form method="post" action="/proveedor/registro">
+    <div>
+        <label for="nombre">Nombre:</label><br>
+        <input type="text" id="nombre" name="nombre" required autocomplete="off" style="width: 250px;">
+    </div>
+
+    <div>
+        <label for="rut">RUT:</label><br>
+        <input type="text" id="rut" name="rut" required autocomplete="off" style="width: 250px;">
+    </div>
+
+    <div>
+        <label for="usuario">Usuario:</label><br>
+        <input type="text" id="usuario" name="usuario" required autocomplete="off" style="width: 250px;">
+    </div>
+
+    <div>
+        <label for="clave">Contraseña:</label><br>
+        <input type="password" id="clave" name="clave" required autocomplete="off" style="width: 250px;">
+    </div>
+
+    <div style="margin-top: 10px;">
+        <button type="submit">Registrarse</button>
+    </div>
+</form>
+
+<p style="margin-top: 10px;">¿Ya tienes cuenta? <a href="/proveedor/login">Inicia sesión aquí</a></p>
+{% endblock %}
