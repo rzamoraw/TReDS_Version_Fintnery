@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Crear Fondo{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <h2 class="mb-4">Crear Fondo y Asignar Administrador</h2>
+            {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+            {% endif %}
+            <form method="post" action="/middle/fondos/crear">
+                <div class="mb-3">
+                    <label for="nombre_fondo" class="form-label">Nombre del Fondo</label>
+                    <input type="text" class="form-control" id="nombre_fondo" name="nombre_fondo" required>
+                </div>
+                <div class="mb-3">
+                    <label for="descripcion" class="form-label">Descripción</label>
+                    <textarea class="form-control" id="descripcion" name="descripcion" rows="2"></textarea>
+                </div>
+                <hr>
+                <h5>Administrador del Fondo</h5>
+                <div class="mb-3">
+                    <label for="nombre_admin" class="form-label">Nombre</label>
+                    <input type="text" class="form-control" id="nombre_admin" name="nombre_admin" required>
+                </div>
+                <div class="mb-3">
+                    <label for="usuario_admin" class="form-label">Usuario</label>
+                    <input type="text" class="form-control" id="usuario_admin" name="usuario_admin" required>
+                </div>
+                <div class="mb-3">
+                    <label for="clave_admin" class="form-label">Contraseña</label>
+                    <input type="password" class="form-control" id="clave_admin" name="clave_admin" required>
+                </div>
+                <button type="submit" class="btn btn-success">Crear Fondo</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

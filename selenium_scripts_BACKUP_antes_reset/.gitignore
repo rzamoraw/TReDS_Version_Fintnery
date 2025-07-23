@@ -1,0 +1,56 @@
+<<<<<<< HEAD
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Entornos virtuales
+env/
+venv/
+.venv/
+
+# Archivos de base de datos
+*.db
+*.sqlite3
+
+# Archivos de configuración sensible
+.env
+
+# Archivos ZIP y XML subidos
+*.zip
+*.xml
+uploads/
+
+# Archivos de sistema (MacOS y otros)
+.DS_Store
+Thumbs.db
+
+# Logs y caché
+*.log
+*.bak
+.cache/
+
+# Archivos temporales de editor
+*.swp
+*.swo
+# Mac/pyc
+.DS_Store
+__pycache__/
+*.pyc
+=======
+*.pyc
+__pycache__/
+*.zip
+cookies.json
+*.log
+.env
+*.DS_Store
+*.db
+facturas_sii/data/
+facturas_sii/xml/
+
+>>>>>>> 43ff33c (Primer commit: scripts Selenium para login y descarga de DTE desde SII)

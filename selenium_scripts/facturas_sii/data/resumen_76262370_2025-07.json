@@ -1,0 +1,80 @@
+{
+  "data": {
+    "resumenDte": [
+      {
+        "tipoDoc": 33,
+        "tipoDocDesc": "Factura Electronica",
+        "totalDoc": 15,
+        "mntExento": 0,
+        "mntNeto": 78587861,
+        "mntIVA": 14931693,
+        "mntTotal": 93519554,
+        "seccion": "S1",
+        "periodo": "2025-07",
+        "rut": 76262370,
+        "dv": "6",
+        "refNCD": 0,
+        "totalDocNCD": 0
+      },
+      {
+        "tipoDoc": 61,
+        "tipoDocDesc": "Nota de Credito Electronica",
+        "totalDoc": 2,
+        "mntExento": 0,
+        "mntNeto": 1200000,
+        "mntIVA": 228000,
+        "mntTotal": 1428000,
+        "seccion": "S1",
+        "periodo": "2025-07",
+        "rut": 76262370,
+        "dv": "6",
+        "refNCD": 0,
+        "totalDocNCD": 2
+      },
+      {
+        "tipoDoc": 56,
+        "tipoDocDesc": " Nota de Debito Electronica",
+        "totalDoc": 1,
+        "mntExento": 0,
+        "mntNeto": 300000,
+        "mntIVA": 57000,
+        "mntTotal": 357000,
+        "seccion": "S1",
+        "periodo": "2025-07",
+        "rut": 76262370,
+        "dv": "6",
+        "refNCD": 0,
+        "totalDocNCD": 1
+      },
+      {
+        "tipoDoc": 52,
+        "tipoDocDesc": "Guia de Despacho Electronica",
+        "totalDoc": 9,
+        "mntExento": 0,
+        "mntNeto": 0,
+        "mntIVA": 0,
+        "mntTotal": 0,
+        "seccion": "S5",
+        "periodo": "2025-07",
+        "rut": 76262370,
+        "dv": "6",
+        "refNCD": 0,
+        "totalDocNCD": 0
+      }
+    ],
+    "datosAsync": null
+  },
+  "metaData": {
+    "conversationId": "YFQNKR0HY19GK",
+    "transactionId": "ebdd304f-eba1-4b72-8a05-90348e68a518",
+    "namespace": "cl.sii.sdi.lob.diii.consemitidos.data.api.interfaces.FacadeService/getResumen",
+    "info": null,
+    "errors": null,
+    "page": null
+  },
+  "respEstado": {
+    "codRespuesta": 0,
+    "msgeRespuesta": null,
+    "codError": null
+  }
+}

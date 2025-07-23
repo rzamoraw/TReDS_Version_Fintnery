@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Fintnery Platform{% endblock %}</title>
+    <!-- Bootstrap para estilos visuales -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Tus propios estilos -->
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <header class="main-header d-flex align-items-center bg-primary text-white p-2">
+        <img src="/static/LogoFIntneryWeb.svg" alt="Fintnery" class="logo me-3" style="height: 60px;">
+        <h1 class="titulo-principal">Plataforma TReDS Chile</h1>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer text-center mt-5">
+        <p>&copy; 2025 Fintnery | Plataforma ética de confirming</p>
+    </footer>
+
+    {% if financiador_nombre or proveedor_nombre or pagador_nombre %}
+    <div style="position: absolute; top: 20px; right: 30px; color: white; background-color: #0d6efd; padding: 5px 10px; border-radius: 5px;">
+        Usuario:
+        {% if financiador_nombre %}{{ financiador_nombre }} (Financiador){% endif %}
+        {% if proveedor_nombre %}{{ proveedor_nombre }} (Proveedor){% endif %}
+        {% if pagador_nombre %}{{ pagador_nombre }} (Pagador){% endif %}
+    </div>
+    {% endif %}
+
+    {% if request.session.get('es_admin') %}
+    <a href="/financiador/usuarios" class="btn btn-sm btn-outline-light ms-2">Panel usuarios</a>
+    {% endif %}
+</body>
+</html>
+
