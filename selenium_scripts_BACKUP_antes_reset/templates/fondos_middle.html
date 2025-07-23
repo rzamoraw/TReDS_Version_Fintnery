@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Fondos | Panel Middle{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Panel de Administración de Fondos</h2>
+
+    {% if success %}
+        <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <a href="/middle/fondos/crear" class="btn btn-primary mb-3">
+        <i class="bi bi-plus-circle"></i> Crear nuevo fondo
+    </a>
+
+    <table class="table table-bordered table-hover">
+        <thead class="table-dark">
+            <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Descripción</th>
+                <th>Activo</th>
+                <th>Acciones</th> <!-- NUEVA COLUMNA -->
+            </tr>
+        </thead>
+        <tbody>
+            {% for fondo in fondos %}
+            <tr>
+                <td>{{ fondo.id }}</td>
+                <td>{{ fondo.nombre }}</td>
+                <td>{{ fondo.descripcion }}</td>
+                <td>
+                    {% if fondo.activo %}
+                        <span class="badge bg-success">Sí</span>
+                    {% else %}
+                        <span class="badge bg-secondary">No</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post" action="/middle/fondos/eliminar" onsubmit="return confirm('¿Estás seguro que deseas eliminar este fondo? Esta acción no se puede deshacer.');">
+                        <input type="hidden" name="fondo_id" value="{{ fondo.id }}">
+                        <button class="btn btn-sm btn-danger" type="submit">
+                            <i class="bi bi-trash"></i> Eliminar
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

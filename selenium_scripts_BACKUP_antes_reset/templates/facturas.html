@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Mis Facturas</h2>
+        <a href="/proveedor/logout" class="btn btn-outline-secondary">
+            Cerrar sesión
+        </a>
+    </div>
+
+    <!-- ────── 1. Carga desde ZIP / XML ────── -->
+    <form action="/proveedor/facturas"
+          method="post"
+          enctype="multipart/form-data"
+          class="mb-4">
+        <label class="form-label me-2 fw-semibold">
+            Subir archivo (XML o ZIP):
+        </label>
+        <input type="file"
+               name="archivo"
+               accept=".xml,.zip"
+               class="form-control d-inline-block w-auto me-2"
+               required>
+        <button class="btn btn-primary">
+            📤 Cargar
+        </button>
+    </form>
+
+    <!-- ────── 2. Carga manual colapsable (opcional) ────── -->
+    <p>
+        <a class="btn btn-sm btn-outline-info"
+           data-bs-toggle="collapse"
+           href="#collapseManual"
+           role="button"
+           aria-expanded="false"
+           aria-controls="collapseManual">
+            ➕ Cargar factura manualmente
+        </a>
+    </p>
+    <div class="collapse" id="collapseManual">
+        <div class="card card-body mb-4">
+            <form action="/proveedor/facturas" method="post" class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label">Folio</label>
+                    <input type="number" name="folio" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">RUT Receptor</label>
+                    <input type="text" name="rut_receptor" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Razón Social Receptor</label>
+                    <input type="text" name="razon_social_receptor" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Tipo DTE</label>
+                    <input type="text" name="tipo_dte" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Monto</label>
+                    <input type="number" name="monto" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">F. Emisión</label>
+                    <input type="date" name="fecha_emision" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">F. Venc.</label>
+                    <input type="date" name="fecha_vencimiento" class="form-control" required>
+                </div>
+                <div class="col-12 text-end">
+                    <button class="btn btn-success">
+                        Guardar factura
+                    </button>
+                </div>
+            </form>
+            <small class="text-muted">
+                *Este formulario es opcional. Si no lo vas a usar, simplemente ignóralo; el backend
+                seguirá funcionando igual.
+            </small>
+        </div>
+    </div>
+
+    <!-- ────── 3. Tabla de facturas ────── -->
+    <h5 class="text-secondary mb-3">Facturas cargadas</h5>
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover bg-white">
+            <thead class="table-light">
+            <tr>
+                <th>Folio</th>
+                <th>RUT Emisor</th>            <!-- NUEVO -->
+                <th>Emisor</th>                <!-- NUEVO -->
+                <th>Receptor</th>
+                <th>Monto</th>
+                <th>Fecha Emisión</th>
+                <th>Fecha Vencimiento</th>
+                <th>Estado / Acciones</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for factura in facturas %}
+                <tr>
+                    <td>{{ factura.folio }}</td>
+                    <td>{{ factura.rut_emisor }}</td>           <!-- NUEVO -->
+                    <td>{{ factura.razon_social_emisor }}</td>  <!-- NUEVO -->
+                    <td>{{ factura.razon_social_receptor }}</td>
+                    <td>${{ '{:,.0f}'.format(factura.monto) }}</td>
+                    <td>{{ factura.fecha_emision }}</td>
+                    <td>{{ factura.fecha_vencimiento }}</td>
+                    <td>
+                        {% if factura.estado_dte == "Cargada" %}
+                            <form method="get"
+                                action="/proveedor/solicitar_confirmacion/{{ factura.id }}"
+                                class="d-inline">
+                                <button class="btn btn-sm btn-outline-warning">
+                                    Solicitar confirmación
+                                </button>
+                            </form>
+                        {% elif factura.estado_dte == "Confirmada por pagador" %}
+                            <form method="post"
+                                  action="/proveedor/solicitar_confirming/{{ factura.id }}"
+                                  class="d-inline">
+                                <button class="btn btn-sm btn-outline-primary">
+                                    Solicitar confirming
+                                </button>
+                            </form>
+                            <form method="post"
+                                  action="/proveedor/rechazar_vencimiento/{{ factura.id }}"
+                                  class="d-inline ms-1">
+                                <button class="btn btn-sm btn-outline-danger">
+                                    Rechazar vencimiento
+                                </button>
+                            </form>
+                        {% elif factura.estado_dte == "Confirming solicitado" %}
+                            <span class="text-success">Confirming solicitado</span>
+                            <a href="/proveedor/facturas?factura_id={{ factura.id }}"
+                               class="btn btn-sm btn-outline-primary ms-2">
+                                Ver&nbsp;ofertas
+                            </a>
+                        {% elif factura.estado_dte == "Confirming adjudicado" %}
+                            <span class="text-success">Confirming adjudicado</span><br> 
+                            {% if factura.financiador %}   
+                            <small class="text-muted">
+                                Financiador:&nbsp;{{ factura.financiador.nombre }}
+                            </small>
+                        {% endif %}    
+                        {% else %}
+                            {{ factura.estado_dte }}
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="8" class="text-center text-muted">
+                        No hay facturas cargadas.
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+<!-- ────── 4. Tabla de ofertas (cuando se selecciona factura) ────── -->
+{% if request.query_params.get('factura_id') %}
+    {% set sel_id = request.query_params.get('factura_id')|int %}
+    {% set ofertas = ofertas_por_factura.get(sel_id, []) %}
+
+    <h4 class="mt-4">Ofertas para la factura #{{ sel_id }}</h4>
+
+    {% if ofertas %}
+        <table class="table table-sm table-bordered">
+            <thead class="table-light">
+            <tr>
+                <th>Financiador</th>
+                <th>Tasa&nbsp;(%)</th>
+                <th>Comisión&nbsp;flat</th>
+                <th>Días ant.</th>
+                <th>Precio&nbsp;cesión</th>
+                <th class="text-center">Acción</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for o in ofertas %}
+                <tr>
+                    <td>
+                        {{ o.financiador.nombre }}<br>
+                        <small class="text-muted">
+                            ({{ o.financiador.fondo.nombre }})
+                        </small>
+                    </td>
+                    <td>{{ '{:,.2f}'.format(o.tasa_interes) }}</td>
+                    <td>{{ '{:,.0f}'.format(o.comision_flat) }}</td>
+                    <td>{{ o.dias_anticipacion }}</td>
+                    <td>
+                        {% if o.precio_cesion is not none %}
+                            ${{ '{:,.0f}'.format(o.precio_cesion) }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <form method="post"
+                              action="/proveedor/aceptar-oferta/{{ o.id }}"
+                              class="d-inline">
+                            <button class="btn btn-sm btn-success">
+                                Aceptar
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="text-muted">No hay ofertas todavía.</p>
+    {% endif %}
+{% endif %}
+    
+</div>
+{% endblock %}
