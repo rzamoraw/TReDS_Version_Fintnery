@@ -4,11 +4,11 @@
       {
         "tipoDoc": 33,
         "tipoDocDesc": "Factura Electronica",
-        "totalDoc": 15,
+        "totalDoc": 18,
         "mntExento": 0,
-        "mntNeto": 78587861,
-        "mntIVA": 14931693,
-        "mntTotal": 93519554,
+        "mntNeto": 85844826,
+        "mntIVA": 16310517,
+        "mntTotal": 102155343,
         "seccion": "S1",
         "periodo": "2025-07",
         "rut": 76262370,
@@ -49,7 +49,7 @@
       {
         "tipoDoc": 52,
         "tipoDocDesc": "Guia de Despacho Electronica",
-        "totalDoc": 9,
+        "totalDoc": 10,
         "mntExento": 0,
         "mntNeto": 0,
         "mntIVA": 0,
@@ -65,8 +65,8 @@
     "datosAsync": null
   },
   "metaData": {
-    "conversationId": "YFQNKR0HY19GK",
-    "transactionId": "ebdd304f-eba1-4b72-8a05-90348e68a518",
+    "conversationId": "IVWK5RLR39RUY",
+    "transactionId": "resumen-test-001",
     "namespace": "cl.sii.sdi.lob.diii.consemitidos.data.api.interfaces.FacadeService/getResumen",
     "info": null,
     "errors": null,

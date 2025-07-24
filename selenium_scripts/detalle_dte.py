@@ -2,7 +2,6 @@ import json
 import requests
 import os
 
-
 # ------------------ Ruta robusta al JSON ------------------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 cookies_path = os.path.join(BASE_DIR, "selenium_scripts", "facturas_sii", "cookies", "cookies.json")
@@ -10,10 +9,7 @@ cookies_path = os.path.join(BASE_DIR, "selenium_scripts", "facturas_sii", "cooki
 with open(cookies_path, "r") as f:
     cookies_list = json.load(f)
 
-# ------------------ Leer cookies ------------------
-with open("facturas_sii/cookies/cookies.json", "r") as f:
-    cookies_list = json.load(f)
-
+# ------------------ Parseo de cookies ------------------
 cookies = {cookie["name"]: cookie["value"] for cookie in cookies_list}
 
 # ------------------ Inputs ------------------
@@ -65,21 +61,31 @@ res = requests.post(
 
 try:
     data = res.json()
-    detalles = data.get("dataResp", {}).get("detalles", [])
 
-    if not detalles:
-        print("⚠️ No se encontraron detalles de facturas.")
-    else:
-        print(f"✅ Se recibieron {len(detalles)} documentos en el detalle.")
-        print("🧾 Ejemplo primer documento:")
-        print(json.dumps(detalles[0], indent=2, ensure_ascii=False))
+    if not isinstance(data, dict):
+        raise ValueError("La respuesta del SII no es un JSON válido.")
 
-        # Guardar resultado
-        os.makedirs("facturas_sii/data", exist_ok=True)
-        ruta_json = f"facturas_sii/data/detalle_{rut}_{periodo}.json"
-        with open(ruta_json, "w") as f:
-            json.dump(detalles, f, indent=2, ensure_ascii=False)
-        print(f"💾 Detalle completo guardado en: {ruta_json}")
+    data_resp = data.get("dataResp")
+    if data_resp is None:
+        raise ValueError("⚠️ La respuesta no contiene 'dataResp'.")
+
+    detalles = data_resp.get("detalles")
+    if detalles is None:
+        raise ValueError("⚠️ La respuesta no contiene la lista 'detalles'.")
+
+    if not isinstance(detalles, list) or len(detalles) == 0:
+        raise ValueError("⚠️ No hay documentos disponibles en 'detalles'.")
+
+    print(f"✅ Se recibieron {len(detalles)} documentos en el detalle.")
+    print("🧾 Ejemplo primer documento:")
+    print(json.dumps(detalles[0], indent=2, ensure_ascii=False))
+
+    # Guardar resultado
+    os.makedirs("facturas_sii/data", exist_ok=True)
+    ruta_json = f"facturas_sii/data/detalle_{rut}_{periodo}.json"
+    with open(ruta_json, "w") as f:
+        json.dump(detalles, f, indent=2, ensure_ascii=False)
+    print(f"💾 Detalle completo guardado en: {ruta_json}")
 
 except Exception as e:
     print("❌ Error al procesar el detalle:", e)

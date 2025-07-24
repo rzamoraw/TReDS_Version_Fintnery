@@ -2,16 +2,16 @@ import json
 import requests
 from datetime import datetime
 
-# ---------- Leer cookies ----------
+# ---------- Leer cookies desde archivo ----------
 with open("facturas_sii/cookies/cookies.json", "r") as f:
     cookies_list = json.load(f)
 cookies = {cookie["name"]: cookie["value"] for cookie in cookies_list}
 
-# ---------- Inputs ----------
+# ---------- Inputs del usuario ----------
 rut_completo = input("🔐 Ingrese su RUT completo (sin guion, con DV, ej: 76262370K): ").strip().upper()
 periodo = input("📅 Ingrese el periodo (formato YYYY-MM, Ej: 2025-07): ").strip()
 
-# ---------- Validación RUT ----------
+# ---------- Validar y dividir RUT ----------
 def normalizar_rut(rut_input):
     rut_input = rut_input.replace(".", "").replace("-", "").upper().strip()
     if not rut_input[:-1].isdigit() or rut_input[-1] not in "0123456789K":
@@ -20,24 +20,7 @@ def normalizar_rut(rut_input):
 
 rut, dv = normalizar_rut(rut_completo)
 
-# ---------- Cargar resumen ----------
-resumen_path = f"facturas_sii/data/resumen_{rut}_{periodo}.json"
-try:
-    with open(resumen_path, "r") as f:
-        resumen = json.load(f)
-except FileNotFoundError:
-    print(f"❌ Archivo resumen no encontrado: {resumen_path}")
-    exit()
-
-# ---------- Obtener total facturas tipo 33 ----------
-dtes_33 = [d for d in resumen["data"]["resumenDte"] if d["tipoDoc"] == 33]
-if not dtes_33:
-    print("⚠️  No se encontraron facturas tipo 33 en el periodo indicado.")
-    exit()
-
-print(f"📄 Total facturas electrónicas (tipo 33) encontradas: {dtes_33[0]['totalDoc']}")
-
-# ---------- Consultar detalle (página 1 por ahora) ----------
+# ---------- Preparar headers y payload ----------
 headers = {
     "Accept": "application/json, text/plain, */*",
     "Content-Type": "application/json",
@@ -48,36 +31,43 @@ headers = {
 
 payload = {
     "metaData": {
-        "namespace": "cl.sii.sdi.lob.diii.consemitidos.data.api.interfaces.FacadeService/getDetalle",
+        "namespace": "cl.sii.sdi.lob.diii.consemitidos.data.api.interfaces.FacadeService/getResumen",
         "conversationId": cookies.get("CSESSIONID", ""),
-        "transactionId": "detalle-test-001",
-        "page": 1
+        "transactionId": "resumen-test-001"
+        # ❌ NO poner "page"
     },
     "data": {
         "periodo": periodo,
         "rutContribuyente": rut,
         "dvContribuyente": dv,
-        "tipoDte": 33,
-        "operacion": 1,
-        "seccion": "S1",
-        "refNCD": 0
+        "operacion": 1
     }
 }
 
-print("📥 Consultando detalle de DTE tipo 33...")
+# ---------- Hacer request al SII ----------
+print("📥 Consultando resumen de ventas...")
 res = requests.post(
-    "https://www4.sii.cl/consemitidosinternetui/services/data/facadeService/getDetalle",
+    "https://www4.sii.cl/consemitidosinternetui/services/data/facadeService/getResumen",
     headers=headers,
     cookies=cookies,
     json=payload
 )
 
+# ---------- Procesar respuesta ----------
 try:
-    detalle = res.json()
-    dtes = detalle["data"]["detalles"]
-    print(f"✅ Se recibieron {len(dtes)} documentos en el detalle.")
-    print("\n🧾 Ejemplo primer documento:")
-    print(json.dumps(dtes[0], indent=2, ensure_ascii=False))  # muestra solo el primero
+    resumen = res.json()
+    resumen_dtes = resumen["data"]["resumenDte"]
+    print(f"✅ Resumen recibido. Documentos disponibles: {len(resumen_dtes)}")
+
+    # Guardar resultado en archivo JSON
+    resumen_path = f"facturas_sii/data/resumen_{rut}_{periodo}.json"
+    with open(resumen_path, "w", encoding="utf-8") as f:
+        json.dump(resumen, f, ensure_ascii=False, indent=2)
+
+    print(f"📄 Archivo guardado como {resumen_path}")
+
 except Exception as e:
-    print("❌ Error al procesar detalle:", e)
-    print("📄 Contenido bruto:", res.text[:1000])
+    print("❌ Error al procesar el resumen:", e)
+    print("📄 Contenido crudo recibido:", res.text[:1000])
+
+
