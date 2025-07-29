@@ -359,14 +359,14 @@ def guardar_costo_fondos(
     return RedirectResponse("/financiador/costo-fondos?msg=ok", status_code=303)
 
 # ──────────────────────────────── Ofertas ────────────────────────────────
-@router.get("/ofertar/{factura_id}")
-def mostrar_formulario_oferta(factura_id: int, request: Request, db: Session = Depends(get_db)):
+@router.get("/ofertar/{folio}")
+def mostrar_formulario_oferta(folio: int, request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
     if not financiador_id:
         return RedirectResponse("/financiador/login", 303)
 
     financiador = db.query(Financiador).get(financiador_id)
-    factura = db.query(FacturaDB).get(factura_id)
+    factura = db.query(FacturaDB).filter_by(folio=folio).first()
     if not factura:
         return templates.TemplateResponse("error.html", {"request": request, "mensaje": "Factura no encontrada"})
 
@@ -378,9 +378,9 @@ def mostrar_formulario_oferta(factura_id: int, request: Request, db: Session = D
         "dias_anticipacion": dias_anticipacion
     })
 
-@router.post("/registrar-oferta/{factura_id}")
+@router.post("/registrar-oferta/{folio}")
 def registrar_oferta(
-    factura_id: int,
+    folio: int,
     request: Request,
     tasa_interes: float = Form(...),
     comision_flat: float = Form(...),
@@ -391,7 +391,10 @@ def registrar_oferta(
     if not financiador_id:
         return RedirectResponse("/financiador/login", 303)
 
-    factura = db.query(FacturaDB).get(factura_id)
+    factura = db.query(FacturaDB).filter_by(folio=folio).first()
+    if not factura:
+        return templates.TemplateResponse("error.html", {"request": request, "mensaje": "Factura no encontrada"})
+
     financiador = db.query(Financiador).get(financiador_id)
 
     monto = factura.monto
@@ -400,7 +403,7 @@ def registrar_oferta(
     precio_cesion = monto - descuento - comision_flat
 
     nueva = OfertaFinanciamiento(
-        factura_id=factura_id,
+        factura_id=factura.id,
         financiador_id=financiador_id,
         tasa_interes=tasa_interes,
         comision_flat=comision_flat,

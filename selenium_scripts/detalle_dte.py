@@ -142,9 +142,16 @@ if response.status_code == 200:
     output_folder = "facturas_sii/data"
     os.makedirs(output_folder, exist_ok=True)
     filename = os.path.join(output_folder, f"detalle_{rut}_{periodo}.json")
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-    print(f"✅ Detalle guardado en {filename}")
+    # ✅ Verificar que se recibió correctamente la lista de facturas
+if "data" in data and isinstance(data["data"], list):
+    facturas = data["data"]
+    output_folder = "facturas_sii/data"
+    os.makedirs(output_folder, exist_ok=True)
+    filename = os.path.join(output_folder, f"detalle_{rut}_{periodo}.json")
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(facturas, f, indent=2, ensure_ascii=False)
+    print(f"✅ Detalle guardado correctamente en {filename} (facturas: {len(facturas)})")
 else:
-    print(f"❌ Error al consultar detalle DTE: {response.status_code}")
+    print("❌ La respuesta no contiene la clave 'data' o no es una lista válida.")
+
     print(response.text)

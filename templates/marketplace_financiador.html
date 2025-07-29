@@ -5,13 +5,13 @@
 <div class="container mt-5">
   <h2 class="mb-4">Marketplace – Facturas en Confirming</h2>
 
-{% if request.session.get("es_admin") %}
+  {% if request.session.get("es_admin") %}
   <div class="mb-3">
     <a href="/financiador/usuarios" class="btn btn-outline-dark btn-sm">
       Administrar Usuarios
     </a>
   </div>
-{% endif %}
+  {% endif %}
 
   <!-- ──────── DISPONIBLES ──────── -->
   {% if disponibles %}
@@ -35,15 +35,17 @@
           <td>${{ '{:,.0f}'.format(f.monto) }}</td>
           <td>{{ f.fecha_vencimiento }}</td>
           <td>
-            {% if f.id in ofertas_propias %}
-              <form action="/financiador/ver-oferta/{{ ofertas_propias[f.id].id }}" method="get" class="d-inline">
+            {% if f.folio in ofertas_propias %}
+              <form action="/financiador/ver-oferta/{{ ofertas_propias[f.folio].id }}" method="get" class="d-inline">
                 <button class="btn btn-sm btn-outline-info">Ver oferta</button>
               </form>
-              <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
+              {% if f.estado_dte == "Confirming solicitado" %}
+              <form action="/financiador/ofertar/{{ f.folio }}" method="get" class="d-inline">
                 <button class="btn btn-sm btn-outline-primary">Editar oferta</button>
               </form>
+              {% endif %}
             {% else %}
-              <form action="/financiador/ofertar/{{ f.id }}" method="get" class="d-inline">
+              <form action="/financiador/ofertar/{{ f.folio }}" method="get" class="d-inline">
                 <button class="btn btn-sm btn-primary">Ofertar</button>
               </form>
             {% endif %}

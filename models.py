@@ -13,7 +13,12 @@ class Proveedor(Base):
     rut = Column(String, unique=True, index=True, nullable=False)
     usuario = Column(String, unique=True, index=True, nullable=False)
     clave_hash = Column(String, nullable=False)
+    razon_social = Column(String, nullable=True)
 
+    # 🆕 Campos para conexión con SII:
+    clave_sii = Column(String, nullable=True)          # opcional, puede ir en texto plano o cifrada
+    cookies_sii_path = Column(String, nullable=True)   # ejemplo: "cookies/cookies_76262370-6.json"
+    
     # Relación con facturas
     facturas = relationship("FacturaDB", back_populates="proveedor")
 

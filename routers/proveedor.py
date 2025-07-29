@@ -4,11 +4,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
 from passlib.context import CryptContext
 from database import SessionLocal
-from models import Proveedor, FacturaDB, OfertaFinanciamiento
+from models import Proveedor, FacturaDB, OfertaFinanciamiento, Financiador, Pagador
 from datetime import datetime
 import os, zipfile, xml.etree.ElementTree as ET
 from fastapi import HTTPException
-
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -122,7 +121,7 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
       )
       .filter(
           FacturaDB.proveedor_id == prov_id,
-          FacturaDB.rut_emisor   == proveedor.rut
+          FacturaDB.rut_emisor   == proveedor.rut[:-2] 
       )      # ← aquí termina filter
       .all() # ← aquí, sobre el Query
 )
@@ -335,73 +334,150 @@ def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_d
 
     return RedirectResponse("/proveedor/facturas?msg=oferta_ok", 303)
 
+@router.get("/importar_sii_facturas")
 @router.post("/importar_sii_facturas")
 def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
     proveedor_id = request.session.get("proveedor_id")
     if not proveedor_id:
-        return RedirectResponse(url="/proveedor/login", status_code=303)
+        return RedirectResponse("/proveedor/login", 303)
 
     proveedor = db.query(Proveedor).get(proveedor_id)
     if not proveedor:
-        return RedirectResponse(url="/proveedor/login", status_code=303)
+        return RedirectResponse("/proveedor/login", 303)
 
-    rut = proveedor.rut
-    carpeta = f"descargadas_sii_{rut}"
-    if not os.path.exists(carpeta):
-        raise HTTPException(status_code=404, detail=f"No se encontró la carpeta: {carpeta}")
+    # RUT completo y base
+    rut_completo = proveedor.rut.replace(".", "").replace("-", "")  # Ej: 762623706
+    rut_base = rut_completo[:-1]  # Ej: 76262370 (sin dígito verificador)
+
+    periodo = datetime.now().strftime("%Y-%m")
+    json_path = f"selenium_scripts/facturas_sii/data/detalle_{rut_base}_{periodo}.json"
+
+    print(f"🧪 Importando desde JSON: {json_path}")
+    print(f"Proveedor logeado: {proveedor.nombre} (RUT original: {proveedor.rut})")
+
+    if not os.path.exists(json_path):
+        print("❌ No existe el archivo JSON esperado")
+        return templates.TemplateResponse("facturas.html", {
+            "request": request,
+            "errores": [f"No se encontró el archivo {json_path}"],
+            "facturas": [],
+            "proveedor_nombre": proveedor.nombre
+        })
+
+    import json
+    with open(json_path, "r", encoding="utf-8") as f:
+        facturas_data = json.load(f)
+
+    print(f"📄 JSON cargado correctamente. Total facturas encontradas: {len(facturas_data)}")
 
     errores = []
-    archivos = [f for f in os.listdir(carpeta) if f.endswith(".xml")]
+    nuevas_facturas = []
+    facturas_descartadas = []
 
-    for nombre in archivos:
-        ruta = os.path.join(carpeta, nombre)
+    for d in facturas_data:
+        if not isinstance(d, dict):
+            errores.append(f"Entrada inválida ignorada: {d}")
+            continue
+
+        # 💣 Filtro: excluir facturas con forma de pago "Contado"
+        if d.get("detFormaPagoLeyenda", "").strip().lower() == "contado":
+            continue  # se omite la carga de esta factura
+
         try:
-            tree = ET.parse(ruta)
-            root = tree.getroot()
-            folio = int(root.find(".//Folio").text)
-            rut_emisor = root.find(".//RUTEmisor").text
-            rut_receptor = root.find(".//RUTRecep").text
+            folio = int(d["detNroDoc"])
+            rut_emisor = rut_base  # ← obligatorio: rut base sin DV, ya validado
+            rut_receptor = f"{d['detRutDoc']}{d['detDvDoc']}"  # ← pagador con DV
 
-            if rut_emisor != rut:
-                errores.append(f"Factura {folio} descartada: RUT emisor ({rut_emisor}) no coincide con proveedor ({rut})")
+            # Validación: solo subir si el proveedor logeado es el emisor
+            if rut_base != proveedor.rut[:-1]:
+                errores.append(f"⚠️ RUT emisor {rut_base} no coincide con proveedor logeado ({proveedor.rut})")
                 continue
 
             duplicada = db.query(FacturaDB).filter_by(
                 rut_emisor=rut_emisor, rut_receptor=rut_receptor, folio=folio
             ).first()
             if duplicada:
-                errores.append(f"Factura duplicada: {folio}")
+                errores.append(f"Factura duplicada folio {folio}")
                 continue
 
             factura = FacturaDB(
                 rut_emisor=rut_emisor,
                 rut_receptor=rut_receptor,
-                tipo_dte=root.find(".//TipoDTE").text,
+                tipo_dte=str(d["detTipoDoc"]),
                 folio=folio,
-                monto=int(root.find(".//MntTotal").text),
-                razon_social_emisor=root.find(".//RznSoc").text,
-                razon_social_receptor=root.find(".//RznSocRecep").text,
-                fecha_emision=datetime.strptime(root.find(".//FchEmis").text, "%Y-%m-%d").date(),
-                fecha_vencimiento=datetime.strptime(root.find(".//FchVenc").text, "%Y-%m-%d").date(),
-                fecha_vencimiento_original=datetime.strptime(root.find(".//FchVenc").text, "%Y-%m-%d").date(),
+                monto=int(d["detMntTotal"]),
+                razon_social_emisor=proveedor.nombre,
+                razon_social_receptor=d.get("detRznSoc", "Desconocido"),
+                fecha_emision=datetime.strptime(d["detFchDoc"], "%d/%m/%Y").date(),
+                fecha_vencimiento=datetime.strptime(d["detFecRecepcion"], "%d/%m/%Y %H:%M:%S").date()
+                    if d.get("detFecRecepcion") else datetime.strptime(d["detFchDoc"], "%d/%m/%Y").date(),
+                fecha_vencimiento_original=datetime.strptime(d["detFchDoc"], "%d/%m/%Y").date(),
                 estado_dte="Cargada",
                 confirming_solicitado=False,
-                origen_confirmacion="Proveedor",
+                origen_confirmacion="SII",
                 proveedor_id=proveedor_id
             )
             db.add(factura)
-            db.commit()
+            nuevas_facturas.append(factura)
 
         except Exception as e:
-            errores.append(f"Error en {nombre}: {e}")
+            errores.append(f"Error en folio {d.get('detNroDoc', 'desconocido')}: {e}")
+            print(f"❗ Error en folio {d.get('detNroDoc')}: {e}")
+
+    db.commit()
 
     facturas = db.query(FacturaDB).filter(FacturaDB.proveedor_id == proveedor_id).all()
+
+    print(f"✅ Facturas nuevas agregadas: {len(nuevas_facturas)}")
+    print(f"📊 Total facturas en DB para este proveedor: {len(facturas)}")
+
+    return templates.TemplateResponse("facturas.html", {
+        "request": request,
+        "facturas": facturas,
+        "errores": errores or None,
+        "proveedor_nombre": proveedor.nombre,
+        "facturas_descartadas": facturas_descartadas if facturas_descartadas else None
+    })   
+
+@router.get("/ofertas-folio/{folio}")
+def ver_ofertas_factura_por_folio(
+    folio: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    proveedor_id = request.session.get("proveedor_id")
+    if not proveedor_id:
+        return RedirectResponse("/proveedor/login", 303)
+
+    # Buscar la factura por folio Y proveedor logeado
+    factura = (
+        db.query(FacturaDB)
+          .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == proveedor_id)
+          .first()
+    )
+
+    if not factura:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    if factura.estado_dte != "Confirming solicitado":
+        raise HTTPException(status_code=400, detail="La factura no está habilitada para ver ofertas")
+
+    ofertas = (
+        db.query(OfertaFinanciamiento)
+          .options(
+              joinedload(OfertaFinanciamiento.financiador)
+              .joinedload(Financiador.fondo)
+          )
+          .filter_by(factura_id=factura.id)
+          .order_by(OfertaFinanciamiento.tasa_interes.asc())
+          .all()
+    )
+
     return templates.TemplateResponse(
-        "facturas.html",
+        "ofertas_proveedor.html",
         {
             "request": request,
-            "facturas": facturas,
-            "errores": errores or None,
-            "proveedor_nombre": proveedor.nombre
+            "factura": factura,
+            "ofertas": ofertas
         }
     )
