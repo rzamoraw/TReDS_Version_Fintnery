@@ -99,8 +99,7 @@ def inicio_proveedor(request: Request, db: Session = Depends(get_db)):
         }
     )
 
-
-# ─────────────────────────  Facturas  ──────────────────────────
+# ─────────────────────────  Facturas del proveedor ──────────────────────────
 @router.get("/facturas")
 def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
     prov_id = request.session.get("proveedor_id")
@@ -110,35 +109,52 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
     proveedor = db.query(Proveedor).get(prov_id)
     if not proveedor:
         return RedirectResponse("/proveedor/login", 303)
+    
     nombre = proveedor.nombre
 
-    # traemos facturas + ofertas en una sola consulta
+    # Cargamos todas las facturas del proveedor, con sus ofertas y financiadores
     facturas = (
-    db.query(FacturaDB)
-      .options(
-          joinedload(FacturaDB.ofertas)
-          .joinedload(OfertaFinanciamiento.financiador)
-      )
-      .filter(
-          FacturaDB.proveedor_id == prov_id,
-          FacturaDB.rut_emisor   == proveedor.rut[:-2] 
-      )      # ← aquí termina filter
-      .all() # ← aquí, sobre el Query
-)
+        db.query(FacturaDB)
+        .options(
+            joinedload(FacturaDB.ofertas)
+            .joinedload(OfertaFinanciamiento.financiador)
+        )
+        .filter(
+            FacturaDB.proveedor_id == prov_id,
+            FacturaDB.rut_emisor == proveedor.rut[:-2]
+        )
+        .all()
+    )
 
-    # dict {factura_id: [lista de ofertas]}
-    ofertas_por_factura = {f.id: f.ofertas for f in facturas}
+    # Clasificamos en dos listas
+    facturas_pendientes = [
+        f for f in facturas if f.estado_dte in [
+            "Confirmación solicitada al pagador",
+            "Rechazada por pagador"
+        ]
+    ]
+
+    facturas_confirmadas = [
+        f for f in facturas if f.estado_dte in [
+            "Confirmada por pagador",
+            "Enviado a confirming",
+            "Confirming adjudicado"
+        ]
+    ]
+
+    # Ofertas agrupadas por folio
+    ofertas_por_factura = {f.folio: f.ofertas for f in facturas}
 
     return templates.TemplateResponse(
         "facturas.html",
         {
             "request": request,
-            "facturas": facturas,
+            "facturas_pendientes": facturas_pendientes,
+            "facturas_confirmadas": facturas_confirmadas,
             "ofertas_por_factura": ofertas_por_factura,
             "proveedor_nombre": nombre
         }
     )
-
 
 @router.post("/facturas")
 async def subir_factura_archivo(

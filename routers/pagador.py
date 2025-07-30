@@ -146,7 +146,7 @@ def editar_vencimiento_pagador(
         return RedirectResponse(url="/pagador/login", status_code=303)
 
     factura = db.query(FacturaDB).filter(FacturaDB.folio == folio).first()
-    if factura and factura.estado_dte == "Confirmación solicitada al pagador":
+    if factura:
         factura.fecha_vencimiento = datetime.strptime(nueva_fecha_vencimiento, "%Y-%m-%d").date()
         db.commit()
 
@@ -154,21 +154,31 @@ def editar_vencimiento_pagador(
 
 # ───────────── Confirmar / Rechazar ─────────────
 @router.post("/confirmar-factura/{folio}")
-def confirmar_factura(
-    folio: int,
-    request: Request,
-    db: Session = Depends(get_db)
-):
+def confirmar_factura(folio: int, request: Request, db: Session = Depends(get_db)):
     pagador_id = request.session.get("pagador_id")
     if not pagador_id:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
     factura = db.query(FacturaDB).filter(FacturaDB.folio == folio).first()
-    if factura and factura.estado_dte != "Confirmada por pagador":
-        factura.estado_dte = "Confirmada por pagador"
-        db.commit()
 
-    return RedirectResponse(url="/pagador/facturas", status_code=303)
+    if factura is None:
+        print(f"❌ Factura con folio {folio} no encontrada.")
+        return RedirectResponse(url="/pagador/facturas?msg=error", status_code=303)
+
+    if factura.estado_dte != "Confirmación solicitada al pagador":
+        print(f"❌ Estado no válido para confirmación. Estado actual: {factura.estado_dte}")
+        return RedirectResponse(url="/pagador/facturas?msg=error_estado", status_code=303)
+
+    factura.estado_dte = "Confirmada por pagador"
+    try:
+        db.flush()   # 💥 Forzar escritura inmediata
+        db.commit()
+        print(f"✅ Factura {folio} confirmada y guardada en DB")
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error al confirmar factura {folio}: {e}")
+
+    return RedirectResponse(url="/pagador/facturas?msg=confirmada", status_code=303)
 
 
 @router.post("/rechazar-factura/{folio}")
@@ -186,4 +196,4 @@ def rechazar_factura(
         factura.estado_dte = "Rechazada por pagador"
         db.commit()
 
-    return RedirectResponse(url="/pagador/facturas", status_code=303)
+    return RedirectResponse(url="/pagador/facturas?msg=rechazada", status_code=303)
