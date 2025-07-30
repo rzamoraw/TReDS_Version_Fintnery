@@ -134,9 +134,9 @@ def ver_facturas_pagador(request: Request, db: Session = Depends(get_db)):
 
 
 # ───────────── Editar Vencimiento ─────────────
-@router.post("/editar-vencimiento/{factura_id}")
+@router.post("/editar-vencimiento/{folio}")
 def editar_vencimiento_pagador(
-    factura_id: int,
+    folio: int,
     request: Request,
     nueva_fecha_vencimiento: str = Form(...),
     db: Session = Depends(get_db)
@@ -145,18 +145,17 @@ def editar_vencimiento_pagador(
     if not pagador_id:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
-    factura = db.query(FacturaDB).get(factura_id)
+    factura = db.query(FacturaDB).filter(FacturaDB.folio == folio).first()
     if factura and factura.estado_dte == "Confirmación solicitada al pagador":
         factura.fecha_vencimiento = datetime.strptime(nueva_fecha_vencimiento, "%Y-%m-%d").date()
         db.commit()
 
     return RedirectResponse(url="/pagador/facturas?msg=fecha_actualizada", status_code=303)
 
-
 # ───────────── Confirmar / Rechazar ─────────────
-@router.post("/confirmar-factura/{factura_id}")
+@router.post("/confirmar-factura/{folio}")
 def confirmar_factura(
-    factura_id: int,
+    folio: int,
     request: Request,
     db: Session = Depends(get_db)
 ):
@@ -164,7 +163,7 @@ def confirmar_factura(
     if not pagador_id:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
-    factura = db.query(FacturaDB).get(factura_id)
+    factura = db.query(FacturaDB).filter(FacturaDB.folio == folio).first()
     if factura and factura.estado_dte != "Confirmada por pagador":
         factura.estado_dte = "Confirmada por pagador"
         db.commit()
@@ -172,9 +171,9 @@ def confirmar_factura(
     return RedirectResponse(url="/pagador/facturas", status_code=303)
 
 
-@router.post("/rechazar-factura/{factura_id}")
+@router.post("/rechazar-factura/{folio}")
 def rechazar_factura(
-    factura_id: int,
+    folio: int,
     request: Request,
     db: Session = Depends(get_db)
 ):
@@ -182,7 +181,7 @@ def rechazar_factura(
     if not pagador_id:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
-    factura = db.query(FacturaDB).get(factura_id)
+    factura = db.query(FacturaDB).filter(FacturaDB.folio == folio).first()
     if factura:
         factura.estado_dte = "Rechazada por pagador"
         db.commit()

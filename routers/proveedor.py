@@ -226,43 +226,69 @@ async def subir_factura_archivo(
     )
 
 
-@router.get("/solicitar_confirmacion/{factura_id}")
-def solicitar_confirmacion_factura(
-    factura_id: int, request: Request, db: Session = Depends(get_db)
-):
+@router.get("/solicitar_confirmacion/folio/{folio}")
+def solicitar_confirmacion_factura_folio(folio: int, request: Request, db: Session = Depends(get_db)):
     proveedor_id = request.session.get("proveedor_id")
     if not proveedor_id:
-        return RedirectResponse(url="/proveedor/login", status_code=303)
+        return RedirectResponse("/proveedor/login", 303)
 
-    factura = db.query(FacturaDB).filter(
-        FacturaDB.id == factura_id,
-        FacturaDB.proveedor_id == proveedor_id
-    ).first()
+    factura = (
+        db.query(FacturaDB)
+        .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == proveedor_id)
+        .first()
+    )
     if factura:
         factura.estado_dte = "Confirmación solicitada al pagador"
         factura.confirming_solicitado = True
         factura.origen_confirmacion = "Proveedor"
         db.commit()
 
-    return RedirectResponse(url="/proveedor/facturas", status_code=303)
+    facturas = (
+        db.query(FacturaDB)
+        .filter(FacturaDB.proveedor_id == proveedor_id)
+        .options(joinedload(FacturaDB.ofertas).joinedload(OfertaFinanciamiento.financiador))
+        .all()
+    )
 
+    ofertas_por_factura = {f.id: f.ofertas for f in facturas}
+    proveedor = db.query(Proveedor).get(proveedor_id)
 
-@router.post("/solicitar_confirming/{factura_id}")
-def solicitar_confirming(factura_id: int, db: Session = Depends(get_db)):
-    factura = db.query(FacturaDB).get(factura_id)
+    return templates.TemplateResponse("facturas.html", {
+        "request": request,
+        "facturas": facturas,
+        "ofertas_por_factura": ofertas_por_factura,
+        "proveedor_nombre": proveedor.nombre,
+        "mensaje": f"✅ Confirmación solicitada para la factura folio {folio}"
+    })
+
+@router.post("/solicitar_confirming/folio/{folio}")
+def solicitar_confirming_folio(folio: int, request: Request, db: Session = Depends(get_db)):
+    proveedor_id = request.session.get("proveedor_id")
+    factura = (
+        db.query(FacturaDB)
+        .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == proveedor_id)
+        .first()
+    )
     if factura and factura.estado_dte == "Confirmada por pagador":
         factura.estado_dte = "Confirming solicitado"
         factura.confirming_solicitado = True
         db.commit()
+
     return RedirectResponse("/proveedor/facturas", 303)
 
 
-@router.post("/rechazar_vencimiento/{factura_id}")
-def rechazar_vencimiento(factura_id: int, db: Session = Depends(get_db)):
-    factura = db.query(FacturaDB).get(factura_id)
+@router.post("/rechazar_vencimiento/folio/{folio}")
+def rechazar_vencimiento_folio(folio: int, request: Request, db: Session = Depends(get_db)):
+    proveedor_id = request.session.get("proveedor_id")
+    factura = (
+        db.query(FacturaDB)
+        .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == proveedor_id)
+        .first()
+    )
     if factura and factura.estado_dte == "Confirmada por pagador":
         factura.estado_dte = "Vencimiento rechazado por proveedor"
         db.commit()
+
     return RedirectResponse("/proveedor/facturas", 303)
 
 

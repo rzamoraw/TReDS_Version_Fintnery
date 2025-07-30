@@ -26,16 +26,16 @@
                 <td>${{ "{:,.0f}".format(f.monto) }}</td>
                 <td>{{ f.fecha_emision }}</td>
                 <td>
-                    <form method="post" action="/pagador/editar-vencimiento/{{ f.id }}" class="d-flex">
+                    <form method="post" action="/pagador/editar-vencimiento/{{ f.folio }}" class="d-flex">
                         <input type="date" name="nueva_fecha_vencimiento" class="form-control form-control-sm me-2" value="{{ f.fecha_vencimiento }}">
                         <button type="submit" class="btn btn-sm btn-outline-secondary">Cambiar</button>
                     </form>
                 </td>
                 <td>
-                    <form method="post" action="/pagador/confirmar-factura/{{ f.id }}" style="display:inline;">
+                    <form method="post" action="/pagador/confirmar-factura/{{ f.folio }}" style="display:inline;">
                         <button class="btn btn-sm btn-success">Confirmar</button>
                     </form>
-                    <form method="post" action="/pagador/rechazar-factura/{{ f.id }}" style="display:inline;">
+                    <form method="post" action="/pagador/rechazar-factura/{{ f.folio }}" style="display:inline;">
                         <button class="btn btn-sm btn-danger">Rechazar</button>
                     </form>
                 </td>
