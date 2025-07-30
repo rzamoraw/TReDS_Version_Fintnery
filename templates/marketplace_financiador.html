@@ -28,30 +28,25 @@
         </tr>
       </thead>
       <tbody>
-      {% for f in disponibles %}
-        <tr>
-          <td>{{ f.folio }}</td>
-          <td>{{ f.razon_social_emisor }}</td>
-          <td>${{ '{:,.0f}'.format(f.monto) }}</td>
-          <td>{{ f.fecha_vencimiento }}</td>
-          <td>
-            {% if f.folio in ofertas_propias %}
-              <form action="/financiador/ver-oferta/{{ ofertas_propias[f.folio].id }}" method="get" class="d-inline">
-                <button class="btn btn-sm btn-outline-info">Ver oferta</button>
-              </form>
-              {% if f.estado_dte == "Confirming solicitado" %}
-              <form action="/financiador/ofertar/{{ f.folio }}" method="get" class="d-inline">
-                <button class="btn btn-sm btn-outline-primary">Editar oferta</button>
-              </form>
-              {% endif %}
-            {% else %}
-              <form action="/financiador/ofertar/{{ f.folio }}" method="get" class="d-inline">
-                <button class="btn btn-sm btn-primary">Ofertar</button>
-              </form>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
+    {% for factura in disponibles %}
+      <tr>
+        <td>{{ factura.folio }}</td>
+        <td>{{ factura.razon_social_emisor }}</td>
+        <td>{{ factura.monto }}</td>
+        <td>{{ factura.fecha_vencimiento }}</td>
+        <td>
+          {% if factura.id in ofertas_ids %}
+            <a href="/financiador/ofertar/{{ factura.folio }}" class="btn btn-warning">
+              Editar oferta
+            </a>
+          {% else %}
+            <a href="/financiador/ofertar/{{ factura.folio }}" class="btn btn-primary">
+              Ofertar
+            </a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}  
       </tbody>
     </table>
   </div>

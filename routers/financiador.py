@@ -215,14 +215,25 @@ def ver_marketplace(request: Request, db: Session = Depends(get_db)):
         )
         .all()
     )
-
-    # Mapear ofertas propias por factura
-    ofertas_propias = {
-        o.factura_id: o
+# Mapear facturas que ya tienen oferta de este fondo (aunque sea otro usuario)
+    ofertas_ids = {
+        o.factura_id
         for o in db.query(OfertaFinanciamiento)
-        .filter_by(financiador_id=financiador_id)
+        .join(Financiador)
+        .filter(Financiador.fondo_id == financiador.fondo_id)
         .all()
     }
+
+# Mapear ofertas propias por folio para mostrar botón "Ver oferta"
+    ofertas_propias = {
+        o.factura.folio: o
+        for o in db.query(OfertaFinanciamiento)
+        .join(Financiador)
+        .join(FacturaDB)
+        .filter(Financiador.fondo_id == financiador.fondo_id)
+        .all()
+    }
+
 
     return templates.TemplateResponse(
         "marketplace_financiador.html",
@@ -233,6 +244,7 @@ def ver_marketplace(request: Request, db: Session = Depends(get_db)):
             "mias": mias,
             "otras": otras,
             "ofertas_propias": ofertas_propias,
+            "ofertas_ids": ofertas_ids,          # ← NUEVO: lo necesita el HTML
         },
     )
 
