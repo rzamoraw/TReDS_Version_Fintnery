@@ -18,7 +18,7 @@ class Proveedor(Base):
     # 🆕 Campos para conexión con SII:
     clave_sii = Column(String, nullable=True)          # opcional, puede ir en texto plano o cifrada
     cookies_sii_path = Column(String, nullable=True)   # ejemplo: "cookies/cookies_76262370-6.json"
-    
+
     # Relación con facturas
     facturas = relationship("FacturaDB", back_populates="proveedor")
 
@@ -107,6 +107,11 @@ class FacturaDB(Base):
     confirming_solicitado = Column(Boolean, default=False)
     origen_confirmacion = Column(String, default="Desconocido")
     financiador_adjudicado = Column(Integer, ForeignKey("financiadores.id"), nullable=True)
+
+    # Nuevos campos auxiliares desde importación SII
+    dias_desde_emision = Column(Integer, nullable=True)
+    detEventoReceptor = Column(String, nullable=True)
+    detEventoReceptorLeyenda = Column(String, nullable=True)
     
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
     proveedor = relationship("Proveedor", back_populates="facturas")

@@ -1,98 +1,180 @@
 {% extends "base.html" %}
-
-{% block title %}Facturas del Pagador{% endblock %}
-
 {% block content %}
-<div class="container mt-5">
-    <h2 class="mb-4">Panel de Facturas</h2>
+<h2 class="text-xl font-bold mb-4">Panel de Facturas - {{ pagador_nombre }}</h2>
 
-    <h4 class="text-primary">🕒 Facturas pendientes de acción</h4>
-    <table class="table table-bordered table-hover bg-white mb-5">
-        <thead class="table-light">
-            <tr>
-                <th>Folio</th>
-                <th>Proveedor</th>
-                <th>Monto</th>
-                <th>Fecha emisión</th>
-                <th>Fecha vencimiento</th>
-                <th>Acción</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for f in facturas_pendientes %}
-            <tr>
-                <td>{{ f.folio }}</td>
-                <td>{{ f.razon_social_emisor }}</td>
-                <td>${{ "{:,.0f}".format(f.monto) }}</td>
-                <td>{{ f.fecha_emision }}</td>
-                <td>
-                    <form method="post" action="/pagador/editar-vencimiento/{{ f.folio }}" class="d-flex">
-                        <input type="date" name="nueva_fecha_vencimiento" class="form-control form-control-sm me-2" value="{{ f.fecha_vencimiento }}">
-                        <button type="submit" class="btn btn-sm btn-outline-secondary">Cambiar</button>
-                    </form>
-                </td>
-                <td>
-                    <form method="post" action="/pagador/confirmar-factura/{{ f.folio }}" style="display:inline;">
-                        <button class="btn btn-sm btn-success">Confirmar</button>
-                    </form>
-                    <form method="post" action="/pagador/rechazar-factura/{{ f.folio }}" style="display:inline;">
-                        <button class="btn btn-sm btn-danger">Rechazar</button>
-                    </form>
-                </td>
-            </tr>
-        {% else %}
-            <tr><td colspan="6" class="text-center text-muted">Sin facturas pendientes</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
+<!-- Mensajes de éxito o error -->
+{% if request.query_params.msg == 'confirmada' %}
+  <div class="alert alert-success">✅ Factura confirmada correctamente.</div>
+{% elif request.query_params.msg == 'rechazada' %}
+  <div class="alert alert-warning">⚠️ Factura rechazada correctamente.</div>
+{% elif request.query_params.msg == 'fecha_actualizada' %}
+  <div class="alert alert-info">📅 Fecha de vencimiento actualizada.</div>
+{% elif request.query_params.msg == 'error' %}
+  <div class="alert alert-danger">❌ No se pudo procesar la acción.</div>
+{% endif %}
 
-    <h4 class="text-secondary">📁 Historial de facturas gestionadas</h4>
-    <table class="table table-bordered table-hover bg-light">
-        <thead style="background-color: #0d6efd;" class="text-white">
-            <tr>
-                <th>Folio</th>
-                <th>Proveedor</th>
-                <th>Monto</th>
-                <th>Fecha emisión</th>
-                <th>Fecha venc. original</th>
-                <th>Fecha venc. actual</th>
-                <th>Estado</th>
-                <th>Financiado por</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for f in facturas_gestionadas %}
-            <tr>
-                <td>{{ f.folio }}</td>
-                <td>{{ f.razon_social_emisor }}</td>
-                <td>${{ "{:,.0f}".format(f.monto) }}</td>
-                <td>{{ f.fecha_emision }}</td>
-                <td>{{ f.fecha_vencimiento_original }}</td>
-                <td>{{ f.fecha_vencimiento }}</td>
-                <td>
-                    {% if f.estado_dte == "Confirmada por pagador" %}
-                        <span class="badge bg-success">Confirmada</span>
-                    {% elif f.estado_dte == "Rechazada por pagador" %}
-                        <span class="badge bg-danger">Rechazada</span>
-                    {% endif %}
-                    
-                    {% if f.fecha_vencimiento != f.fecha_vencimiento_original %}
-                        <span class="badge bg-warning text-dark">Fecha modificada</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if f.financiador_adjudicado %}
-                        {{ f.financiador_adjudicado }}
-                    {% else %}
-                        <span class="text-muted">-</span>
-                    {% endif %}
-                </td>
-            </tr>
-        {% else %}
-            <tr><td colspan="8" class="text-center text-muted">Sin facturas gestionadas aún</td></tr>
+<!-- 🔽 Importar desde JSON -->
+<form action="/pagador/importar_facturas" method="post" enctype="multipart/form-data" class="mb-4 d-flex align-items-center gap-3">
+  <label class="form-label"><i class="bi bi-upload"></i> Importar facturas desde JSON</label>
+  <input class="form-control form-control-sm" type="file" name="archivo">
+  
+  <button class="btn btn-primary btn-sm" type="submit">Subir facturas</button>
+</form>
+
+<!-- Tabs con Bootstrap -->
+<ul class="nav nav-tabs mb-4" id="facturaTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="pendientes-tab" data-bs-toggle="tab" data-bs-target="#pendientes" type="button" role="tab">
+      🧾 Pendientes
+      <span class="badge bg-secondary">{{ facturas_pendientes|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="solicitadas-tab" data-bs-toggle="tab" data-bs-target="#solicitadas" type="button" role="tab">
+      📩 Solicitadas
+      <span class="badge bg-secondary">{{ facturas_solicitadas|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="historial-tab" data-bs-toggle="tab" data-bs-target="#historial" type="button" role="tab">
+      📁 Historial
+      <span class="badge bg-secondary">{{ facturas_gestionadas|length }}</span>
+    </button>
+  </li>
+</ul>
+
+<!-- Contenido de cada tab -->
+<div class="tab-content" id="facturaTabsContent">
+  <!-- 🧾 Pendientes -->
+  <div class="tab-pane fade show active" id="pendientes" role="tabpanel">
+    <h5>Facturas cargadas por el pagador</h5>
+    {% if facturas_pendientes %}
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>Folio</th>
+          <th>Proveedor</th>
+          <th>Emisión</th>
+          <th>Vencimiento</th>
+          <th>Monto</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for factura in facturas_pendientes %}
+        <tr>
+          <td>{{ factura.folio }}</td>
+          <td>{{ factura.razon_social_emisor }}</td>
+          <td>{{ factura.fecha_emision }}</td>
+          <td>
+            <form action="/pagador/editar-vencimiento/{{ factura.folio }}" method="post">
+              <input type="date" name="nueva_fecha_vencimiento" value="{{ factura.fecha_vencimiento }}">
+              <button type="submit" class="btn btn-sm btn-outline-primary">Cambiar</button>
+            </form>
+          </td>
+          <td>${{ "{:,.0f}".format(factura.monto) }}</td>
+          <td>
+            <form action="/pagador/confirmar-factura/{{ factura.folio }}" method="post" style="display:inline;">
+              <button class="btn btn-sm btn-success" type="submit">Confirmar</button>
+            </form>
+            <form action="/pagador/rechazar-factura/{{ factura.folio }}" method="post" style="display:inline;">
+              <button class="btn btn-sm btn-danger" type="submit">Rechazar</button>
+            </form>
+          </td>
+        </tr>
         {% endfor %}
-        </tbody>
+      </tbody>
     </table>
+    {% else %}
+    <p>No hay facturas pendientes cargadas por el pagador.</p>
+    {% endif %}
+  </div>
+
+  <!-- 📩 Solicitadas -->
+  <div class="tab-pane fade" id="solicitadas" role="tabpanel">
+    <h5>Facturas con solicitud del proveedor</h5>
+    {% if facturas_solicitadas %}
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>Folio</th>
+          <th>Proveedor</th>
+          <th>Emisión</th>
+          <th>Vencimiento</th>
+          <th>Monto</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for factura in facturas_solicitadas %}
+        <tr>
+          <td>{{ factura.folio }}</td>
+          <td>{{ factura.razon_social_emisor }}</td>
+          <td>{{ factura.fecha_emision }}</td>
+          <td>
+            <form action="/pagador/editar-vencimiento/{{ factura.folio }}" method="post">
+              <input type="date" name="nueva_fecha_vencimiento" value="{{ factura.fecha_vencimiento }}">
+              <button type="submit" class="btn btn-sm btn-outline-primary">Cambiar</button>
+            </form>
+          </td>
+          <td>${{ "{:,.0f}".format(factura.monto) }}</td>
+          <td>
+            <form action="/pagador/confirmar-factura/{{ factura.folio }}" method="post" style="display:inline;">
+              <button class="btn btn-sm btn-success" type="submit">Confirmar</button>
+            </form>
+            <form action="/pagador/rechazar-factura/{{ factura.folio }}" method="post" style="display:inline;">
+              <button class="btn btn-sm btn-danger" type="submit">Rechazar</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No hay facturas solicitadas por proveedores.</p>
+    {% endif %}
+  </div>
+
+  <!-- 📁 Historial -->
+  <div class="tab-pane fade" id="historial" role="tabpanel">
+    <h5>Historial de facturas gestionadas</h5>
+    {% if facturas_gestionadas %}
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>Folio</th>
+          <th>Proveedor</th>
+          <th>Estado</th>
+          <th>Vencimiento</th>
+          <th>Origen</th>
+          <th>Aceptación</th>
+          <th>Días desde emisión</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for factura in facturas_gestionadas %}
+        <tr>
+          <td>{{ factura.folio }}</td>
+          <td>{{ factura.razon_social_emisor }}</td>
+          <td>{{ factura.estado_dte }}</td>
+          <td>{{ factura.fecha_vencimiento }}</td>
+          <td>
+            {% if factura.origen_confirmacion == "Carga proveedor" %}
+              <span class="badge bg-info text-dark">Proveedor</span>
+            {% elif factura.origen_confirmacion == "Importación pagador" %}
+              <span class="badge bg-warning text-dark">Pagador</span>
+            {% else %}
+              {{ factura.origen_confirmacion }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No hay historial de facturas gestionadas aún.</p>
+    {% endif %}
+  </div>
 </div>
-{% endblock %}
 
+{% endblock %}
