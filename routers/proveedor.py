@@ -8,6 +8,7 @@ from models import Proveedor, FacturaDB, OfertaFinanciamiento, Financiador, Paga
 from datetime import datetime
 import os, zipfile, xml.etree.ElementTree as ET
 from fastapi import HTTPException
+from rut_utils import normalizar_rut  # Asegúrate de tener esto al inicio
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -45,7 +46,8 @@ def registrar_proveedor(
         return templates_middle.TemplateResponse("registro_proveedor.html", {"request": request, "error": "El usuario ya existe."})    
 
     clave_hash = pwd_context.hash(clave)
-    nuevo = Proveedor(nombre=nombre, rut=rut, usuario=usuario, clave_hash=clave_hash)
+    rut = normalizar_rut(rut)
+    nuevo = Proveedor(nombre=nombre, rut=normalizar_rut(rut), usuario=usuario, clave_hash=clave_hash)
     db.add(nuevo)
     db.commit()
     return RedirectResponse(url="/proveedor/login", status_code=303)
@@ -69,7 +71,7 @@ def login_proveedor(
             "login_proveedor.html",
             {"request": request, "error": "Usuario o clave incorrectos"}
         )
-    request.session["proveedor_id"] = proveedor.id
+    request.session["proveedor_rut"] = proveedor.rut
     return RedirectResponse(url="/proveedor/facturas", status_code=303)
 
 
@@ -102,31 +104,34 @@ def inicio_proveedor(request: Request, db: Session = Depends(get_db)):
 # ─────────────────────────  Facturas del proveedor ──────────────────────────
 @router.get("/facturas")
 def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
-    prov_id = request.session.get("proveedor_id")
-    if not prov_id:
-        return RedirectResponse("/proveedor/login", 303)
+    rut_proveedor = request.session.get("proveedor_rut")
+    if not rut_proveedor:
+        return RedirectResponse(url="/proveedor/login", status_code=302)
 
-    proveedor = db.query(Proveedor).get(prov_id)
+    # Obtener el proveedor por su RUT
+    proveedor = db.query(Proveedor).filter_by(rut = rut_proveedor).first()
     if not proveedor:
         return RedirectResponse("/proveedor/login", 303)
-    
-    nombre = proveedor.nombre
 
-    # Cargamos todas las facturas del proveedor, con sus ofertas y financiadores
+    nombre = proveedor.nombre
+    rut_normalizado = normalizar_rut(proveedor.rut)
+    print(">> RUT normalizado del proveedor logeado:", rut_normalizado)
+    print(">> PROVEEDOR LOGEADO:", nombre, rut_normalizado)
+
+    # Buscar todas las facturas en que el proveedor es emisor (aunque las haya subido el pagador)
     facturas = (
         db.query(FacturaDB)
         .options(
             joinedload(FacturaDB.ofertas)
             .joinedload(OfertaFinanciamiento.financiador)
         )
-        .filter(
-            FacturaDB.proveedor_id == prov_id,
-            FacturaDB.rut_emisor == proveedor.rut[:-2]
-        )
+        .filter(FacturaDB.rut_emisor == rut_normalizado)
         .all()
     )
-
-    # Clasificamos en dos listas
+    print(">> Facturas encontradas para el RUT:", rut_normalizado)
+    for f in facturas:
+        print(f"   - Folio: {f.folio}, Estado: {f.estado_dte}")
+    
     facturas_pendientes = [
         f for f in facturas if f.estado_dte in [
             "Confirmación solicitada al pagador",
@@ -141,8 +146,11 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
             "Confirming adjudicado"
         ]
     ]
+    print(">> Facturas confirmadas:")
+    for f in facturas_confirmadas:
+        print(f"   - Folio: {f.folio}, Estado: {f.estado_dte}")
 
-    # Ofertas agrupadas por folio
+
     ofertas_por_factura = {f.folio: f.ofertas for f in facturas}
 
     return templates.TemplateResponse(
@@ -194,11 +202,11 @@ async def subir_factura_archivo(
             tree = ET.parse(ruta)
             root = tree.getroot()
             folio = int(root.find(".//Folio").text)
-            rut_emisor = root.find(".//RUTEmisor").text
-            rut_receptor = root.find(".//RUTRecep").text
+            rut_emisor = normalizar_rut(root.find(".//RUTEmisor").text)
+            rut_receptor = normalizar_rut(root.find(".//RUTRecep").text)
 
             # Validación de consistencia con el proveedor logeado
-            if rut_emisor != proveedor.rut:
+            if normalizar_rut(rut_emisor) != normalizar_rut(proveedor.rut):
                 errores.append(f"Factura folio {folio} descartada: RUT emisor ({rut_emisor}) no coincide con proveedor logeado ({proveedor.rut})")
                 continue
 
@@ -388,8 +396,8 @@ def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/proveedor/login", 303)
 
     # RUT completo y base
-    rut_completo = proveedor.rut.replace(".", "").replace("-", "")  # Ej: 762623706
-    rut_base = rut_completo[:-1]  # Ej: 76262370 (sin dígito verificador)
+    rut_normalizado = normalizar_rut(proveedor.rut)  # Ej: '762623706'
+    rut_base = rut_normalizado[:-1]  # Ej: '76262370'
 
     periodo = datetime.now().strftime("%Y-%m")
     json_path = f"selenium_scripts/facturas_sii/data/detalle_{rut_base}_{periodo}.json"
@@ -428,10 +436,10 @@ def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
         try:
             folio = int(d["detNroDoc"])
             rut_emisor = rut_base  # ← obligatorio: rut base sin DV, ya validado
-            rut_receptor = f"{d['detRutDoc']}{d['detDvDoc']}"  # ← pagador con DV
+            rut_receptor = normalizar_rut(f"{d['detRutDoc']}-{d['detDvDoc']}")
 
             # Validación: solo subir si el proveedor logeado es el emisor
-            if rut_base != proveedor.rut[:-1]:
+            if rut_emisor != rut_normalizado[:-1]:
                 errores.append(f"⚠️ RUT emisor {rut_base} no coincide con proveedor logeado ({proveedor.rut})")
                 continue
 

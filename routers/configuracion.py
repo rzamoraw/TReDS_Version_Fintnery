@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import CondicionesPorPagador, Financiador
+from rut_utils import normalizar_rut
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -67,7 +68,7 @@ def guardar_condicion(
     financiador = db.query(Financiador).get(financiador_id)
     
     nueva = CondicionesPorPagador(
-        rut_pagador=rut_pagador,
+        rut_pagador=normalizar_rut(rut_pagador),
         nombre_pagador=nombre_pagador,
         spread=spread,
         dias_anticipacion=dias_anticipacion,

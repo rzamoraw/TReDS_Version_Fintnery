@@ -6,6 +6,7 @@ from datetime import date
 
 from database import SessionLocal
 from models import FacturaDB, Proveedor
+from rut_utils import normalizar_rut
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -51,6 +52,10 @@ def cargar_factura(
     proveedor = db.query(Proveedor).filter(Proveedor.id == proveedor_id).first()
     if not proveedor:
         return RedirectResponse(url="/proveedor/login", status_code=303)
+    
+    # 💡 Normalizar ambos RUTs
+    rut_emisor = normalizar_rut(proveedor.rut)
+    rut_receptor = normalizar_rut(rut_receptor)
 
     # 🚩 Validar si ya existe una factura con ese folio y rut_emisor
     existe = db.query(FacturaDB).filter_by(
