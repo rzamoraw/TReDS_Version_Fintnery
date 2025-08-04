@@ -68,7 +68,7 @@ def login_pagador(
             "login_pagador.html",
             {"request": request, "error": "Usuario o clave incorrectos"}
         )
-    request.session["pagador_id"] = pagador.id
+    
     request.session["rut"] = normalizar_rut(pagador.rut)
     request.session["nombre"] = pagador.nombre
     return RedirectResponse(url="/pagador/facturas", status_code=303)
@@ -77,18 +77,18 @@ def login_pagador(
 # ───────────── Inicio ─────────────
 @router.get("/inicio")
 def inicio_pagador(request: Request, db: Session = Depends(get_db)):
-    pagador_id = request.session.get("pagador_id")
-    if not pagador_id:
+    rut = request.session.get("rut")
+    if not rut:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
-    pagador = db.query(Pagador).get(pagador_id)
+    pagador = db.query(Pagador).filter(Pagador.rut == rut).first()
     pagador_nombre = pagador.nombre if pagador else ""
 
     return templates.TemplateResponse(
         "inicio_pagador.html",
         {
             "request": request,
-            "pagador_id": pagador_id,
+            "rut": rut,
             "pagador_nombre": pagador_nombre
         }
     )
@@ -105,11 +105,9 @@ def logout_pagador(request: Request):
 @router.get("/facturas")
 def ver_facturas_pagador(request: Request, db: Session = Depends(get_db)):
     session = request.session
-    pagador_id = session.get("pagador_id")
-    if not pagador_id:
-        return RedirectResponse(url="/pagador/login", status_code=303)
-
     rut_pagador = normalizar_rut(session.get("rut"))
+    if not rut_pagador:
+        return RedirectResponse(url="/pagador/login", status_code=303)
 
     # 🧾 Facturas pendientes de acción
     facturas_pendientes = db.query(FacturaDB).filter(
@@ -157,13 +155,14 @@ def editar_vencimiento_pagador(
     nueva_fecha_vencimiento: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    pagador_id = request.session.get("pagador_id")
-    if not pagador_id:
+    session = request.session
+    rut_pagador = normalizar_rut(session.get("rut"))
+    if not rut_pagador:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
     factura = db.query(FacturaDB).filter(
         FacturaDB.folio == folio,
-        FacturaDB.pagador_id == pagador_id
+        FacturaDB.rut_receptor == rut_pagador
     ).first()
 
     if factura is None:
@@ -189,14 +188,17 @@ def editar_vencimiento_pagador(
 # ───────────── Confirmar / Rechazar ─────────────
 @router.post("/confirmar-factura/{folio}")
 def confirmar_factura(folio: int, request: Request, db: Session = Depends(get_db)):
-    pagador_id = request.session.get("pagador_id")
-    if not pagador_id:
+    rut_pagador = normalizar_rut(request.session.get("rut"))
+    if not rut_pagador:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
     factura = db.query(FacturaDB).filter(
         FacturaDB.folio == folio,
-        FacturaDB.pagador_id == pagador_id,
-        FacturaDB.estado_dte.in_(["Confirmación solicitada al pagador", "Ingresada por pagador"])
+        FacturaDB.rut_receptor == rut_pagador,
+        FacturaDB.estado_dte.in_([
+            "Confirmación solicitada al pagador",
+            "Ingresada por pagador"
+        ])
     ).first()
 
     if factura is None:
@@ -218,20 +220,24 @@ def confirmar_factura(folio: int, request: Request, db: Session = Depends(get_db
 
     return RedirectResponse(url="/pagador/facturas?msg=confirmada", status_code=303)
 
+
 @router.post("/rechazar-factura/{folio}")
 def rechazar_factura(folio: int, request: Request, db: Session = Depends(get_db)):
-    pagador_id = request.session.get("pagador_id")
-    if not pagador_id:
+    rut_pagador = normalizar_rut(request.session.get("rut"))
+    if not rut_pagador:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
     factura = db.query(FacturaDB).filter(
         FacturaDB.folio == folio,
-        FacturaDB.pagador_id == pagador_id,
-        FacturaDB.estado_dte.in_(["Confirmación solicitada al pagador", "Ingresada por pagador"])
+        FacturaDB.rut_receptor == rut_pagador,
+        FacturaDB.estado_dte.in_([
+            "Confirmación solicitada al pagador",
+            "Ingresada por pagador"
+        ])
     ).first()
 
     if factura is None:
-        print(f"❌ Factura no encontrada o en estado inválido para rechazo.")
+        print(f"❌ Factura con folio {folio} no encontrada o no en estado rechazable.")
         return RedirectResponse(url="/pagador/facturas?msg=error", status_code=303)
 
     factura.estado_dte = "Rechazada por pagador"
@@ -255,8 +261,8 @@ async def importar_facturas_pagador(
     db: Session = Depends(get_db)
 ):
     session = request.session
-    pagador_id = session.get("pagador_id")
-    if not pagador_id:
+    rut_pagador = normalizar_rut(session.get("rut"))   # ✅ usar RUT, no pagador_id
+    if not rut_pagador:
         return RedirectResponse(url="/pagador/login", status_code=303)
 
     contenido = await archivo.read()
@@ -299,7 +305,7 @@ async def importar_facturas_pagador(
             factura_existente = db.query(FacturaDB).filter_by(
                 folio=folio,
                 rut_emisor=rut_emisor,
-                rut_receptor=normalizar_rut(session.get("rut")),
+                rut_receptor=rut_pagador,
                 tipo_dte="33"
             ).first()
 
@@ -312,7 +318,7 @@ async def importar_facturas_pagador(
 
             nueva_factura = FacturaDB(
                 rut_emisor=rut_emisor,
-                rut_receptor=session.get("rut"),
+                rut_receptor=rut_pagador,
                 razon_social_emisor=razon_social_emisor,
                 razon_social_receptor=session.get("nombre"),
                 tipo_dte="33",
@@ -322,7 +328,6 @@ async def importar_facturas_pagador(
                 fecha_emision=fecha_emision,
                 fecha_vencimiento=fecha_vencimiento,
                 fecha_vencimiento_original=fecha_vencimiento,
-                pagador_id=pagador_id,
                 origen_confirmacion="Importación pagador",
                 detEventoReceptor=factura.get("detEventoReceptor"),
                 detEventoReceptorLeyenda=factura.get("detEventoReceptorLeyenda"),
@@ -339,28 +344,29 @@ async def importar_facturas_pagador(
     # 🧾 Pendientes: cargadas por el propio pagador
 
     facturas_pendientes = db.query(FacturaDB).filter(
-        FacturaDB.pagador_id == pagador_id,
+        FacturaDB.rut_receptor == rut_pagador,
         FacturaDB.estado_dte.in_([
-        "Ingresada por pagador",
-        "Confirmación solicitada al pagador"
-    ])
-).all()
+            "Ingresada por pagador",
+            "Confirmación solicitada al pagador"
+        ])
+    ).all()
 
     facturas_gestionadas = db.query(FacturaDB).filter(
-    FacturaDB.pagador_id == pagador_id,
-    FacturaDB.estado_dte.in_([
-        "Confirmada por pagador",
-        "Rechazada por pagador",
-        "Enviado a confirming",
-        "Confirming adjudicado"
-    ])
-).all()
-    
+        FacturaDB.rut_receptor == rut_pagador,
+        FacturaDB.estado_dte.in_([
+            "Confirmada por pagador",
+            "Rechazada por pagador",
+            "Enviado a confirming",
+            "Confirming adjudicado"
+        ])
+    ).all()
+
     facturas_solicitadas = db.query(FacturaDB).filter(
-    FacturaDB.pagador_id == pagador_id,
-    FacturaDB.estado_dte == "Confirmación solicitada al pagador",
-    FacturaDB.origen_confirmacion == "Proveedor"
-).all()
+        FacturaDB.rut_receptor == rut_pagador,
+        FacturaDB.estado_dte == "Confirmación solicitada al pagador",
+        FacturaDB.origen_confirmacion == "Proveedor"
+    ).all()
+
 
     return templates.TemplateResponse("facturas_pagador.html", {
         "request": request,

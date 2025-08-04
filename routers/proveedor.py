@@ -72,6 +72,8 @@ def login_proveedor(
             {"request": request, "error": "Usuario o clave incorrectos"}
         )
     request.session["proveedor_rut"] = proveedor.rut
+    request.session["nombre"] = proveedor.nombre
+
     return RedirectResponse(url="/proveedor/facturas", status_code=303)
 
 
@@ -84,11 +86,13 @@ def logout_proveedor(request: Request):
 # ─────────────────────────  Inicio  ──────────────────────────
 @router.get("/inicio")
 def inicio_proveedor(request: Request, db: Session = Depends(get_db)):
-    proveedor_id = request.session.get("proveedor_id")
-    if not proveedor_id:
+    rut_proveedor = request.session.get("proveedor_rut")
+    if not rut_proveedor:
         return RedirectResponse(url="/proveedor/login", status_code=303)
 
-    proveedor = db.query(Proveedor).get(proveedor_id)
+    rut_proveedor = normalizar_rut(rut_proveedor)
+
+    proveedor = db.query(Proveedor).filter(Proveedor.rut == rut_proveedor).first()
     
     proveedor_nombre = proveedor.nombre if proveedor else "Desconocido"
 
@@ -96,7 +100,7 @@ def inicio_proveedor(request: Request, db: Session = Depends(get_db)):
         "inicio_proveedor.html",
         {
             "request": request,
-            "proveedor_id": proveedor_id,
+            "proveedor_rut": rut_proveedor,
             "proveedor_nombre": proveedor_nombre
         }
     )
@@ -107,6 +111,8 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
     rut_proveedor = request.session.get("proveedor_rut")
     if not rut_proveedor:
         return RedirectResponse(url="/proveedor/login", status_code=302)
+    
+    rut_normalizado = normalizar_rut(rut_proveedor)
 
     # Obtener el proveedor por su RUT
     proveedor = db.query(Proveedor).filter_by(rut = rut_proveedor).first()
@@ -114,7 +120,6 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/proveedor/login", 303)
 
     nombre = proveedor.nombre
-    rut_normalizado = normalizar_rut(proveedor.rut)
     print(">> RUT normalizado del proveedor logeado:", rut_normalizado)
     print(">> PROVEEDOR LOGEADO:", nombre, rut_normalizado)
 
@@ -170,10 +175,11 @@ async def subir_factura_archivo(
     archivo: UploadFile = Form(...),
     db: Session = Depends(get_db)
 ):
-    proveedor_id = request.session.get("proveedor_id")
-    if not proveedor_id:
+    rut_proveedor = request.session.get("proveedor_rut")
+    if not rut_proveedor:
         return RedirectResponse(url="/proveedor/login", status_code=303)
 
+    rut_normalizado = normalizar_rut(rut_proveedor)
     proveedor = db.query(Proveedor).get(proveedor_id)
     proveedor_nombre = proveedor.nombre if proveedor else "Desconocido"
 
@@ -206,7 +212,7 @@ async def subir_factura_archivo(
             rut_receptor = normalizar_rut(root.find(".//RUTRecep").text)
 
             # Validación de consistencia con el proveedor logeado
-            if normalizar_rut(rut_emisor) != normalizar_rut(proveedor.rut):
+            if rut_emisor != rut_normalizado:
                 errores.append(f"Factura folio {folio} descartada: RUT emisor ({rut_emisor}) no coincide con proveedor logeado ({proveedor.rut})")
                 continue
 
@@ -231,14 +237,14 @@ async def subir_factura_archivo(
                 estado_dte="Cargada",
                 confirming_solicitado=False,
                 origen_confirmacion="Proveedor",
-                proveedor_id=proveedor_id
+                proveedor_id=proveedor.id
             )
             db.add(factura)
             db.commit()
         except Exception as e:
             errores.append(f"Error en {nombre}: {e}")
 
-    facturas = db.query(FacturaDB).filter(FacturaDB.proveedor_id == proveedor_id).all()
+    facturas = db.query(FacturaDB).filter(FacturaDB.rut_emisor == rut_normalizado).all()
     return templates.TemplateResponse(
         "facturas.html",
         {
@@ -252,42 +258,69 @@ async def subir_factura_archivo(
 
 @router.get("/solicitar_confirmacion/folio/{folio}")
 def solicitar_confirmacion_factura_folio(folio: int, request: Request, db: Session = Depends(get_db)):
-    proveedor_id = request.session.get("proveedor_id")
-    if not proveedor_id:
+    rut_proveedor = request.session.get("proveedor_rut")
+    if not rut_proveedor:
         return RedirectResponse("/proveedor/login", 303)
 
-    factura = (
-        db.query(FacturaDB)
-        .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == proveedor_id)
-        .first()
-    )
+    rut_normalizado = normalizar_rut(rut_proveedor)
+
+    # Buscar la factura por folio y rut_emisor
+    factura = db.query(FacturaDB).filter(
+        FacturaDB.folio == folio,
+        FacturaDB.rut_emisor == rut_normalizado
+    ).first()
+
     if factura:
         factura.estado_dte = "Confirmación solicitada al pagador"
         factura.confirming_solicitado = True
         factura.origen_confirmacion = "Proveedor"
         db.commit()
 
+    proveedor = db.query(Proveedor).filter_by(rut=rut_normalizado).first()
+    proveedor_nombre = proveedor.nombre if proveedor else "Desconocido"
+
+    # Recargar facturas del proveedor
     facturas = (
         db.query(FacturaDB)
-        .filter(FacturaDB.proveedor_id == proveedor_id)
+        .filter(FacturaDB.rut_emisor == rut_normalizado)
         .options(joinedload(FacturaDB.ofertas).joinedload(OfertaFinanciamiento.financiador))
         .all()
     )
 
-    ofertas_por_factura = {f.id: f.ofertas for f in facturas}
-    proveedor = db.query(Proveedor).get(proveedor_id)
+    ofertas_por_factura = {f.folio: f.ofertas for f in facturas}
+
+    facturas_pendientes = [
+        f for f in facturas if f.estado_dte in [
+            "Confirmación solicitada al pagador",
+            "Rechazada por pagador"
+        ]
+    ]
+
+    facturas_confirmadas = [
+        f for f in facturas if f.estado_dte in [
+            "Confirmada por pagador",
+            "Enviado a confirming",
+            "Confirming adjudicado"
+        ]
+    ]
 
     return templates.TemplateResponse("facturas.html", {
         "request": request,
-        "facturas": facturas,
+        "facturas_pendientes": facturas_pendientes,
+        "facturas_confirmadas": facturas_confirmadas,
         "ofertas_por_factura": ofertas_por_factura,
-        "proveedor_nombre": proveedor.nombre,
+        "proveedor_nombre": proveedor_nombre,
         "mensaje": f"✅ Confirmación solicitada para la factura folio {folio}"
     })
 
 @router.post("/solicitar_confirming/folio/{folio}")
 def solicitar_confirming_folio(folio: int, request: Request, db: Session = Depends(get_db)):
-    proveedor_id = request.session.get("proveedor_id")
+    rut_proveedor = request.session.get("proveedor_rut")
+    if not rut_proveedor:
+        return RedirectResponse("/proveedor/login", 303)
+
+    rut_normalizado = normalizar_rut(rut_proveedor)
+
     factura = (
         db.query(FacturaDB)
         .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == proveedor_id)
@@ -303,7 +336,12 @@ def solicitar_confirming_folio(folio: int, request: Request, db: Session = Depen
 
 @router.post("/rechazar_vencimiento/folio/{folio}")
 def rechazar_vencimiento_folio(folio: int, request: Request, db: Session = Depends(get_db)):
-    proveedor_id = request.session.get("proveedor_id")
+    rut_proveedor = request.session.get("proveedor_rut")
+    if not rut_proveedor:
+        return RedirectResponse("/proveedor/login", 303)
+
+    rut_normalizado = normalizar_rut(rut_proveedor)
+    
     factura = (
         db.query(FacturaDB)
         .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == proveedor_id)
@@ -322,9 +360,11 @@ def ver_ofertas_factura(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    prov_id = request.session.get("proveedor_id")
-    if not prov_id:
+    rut_prov = request.session.get("proveedor_rut")
+    if not rut_prov:
         return RedirectResponse("/proveedor/login", 303)
+    
+    rut_normalizado = normalizar_rut(rut_prov)
 
     factura = db.query(FacturaDB).get(factura_id)
     if not factura or factura.proveedor_id != prov_id:
@@ -357,16 +397,18 @@ def ver_ofertas_factura(
 
 @router.post("/aceptar-oferta/{oferta_id}")
 def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_db)):
-    prov_id = request.session.get("proveedor_id")
-    if not prov_id:
+    rut_prov = request.session.get("proveedor_rut")
+    if not rut_prov:
         return RedirectResponse("/proveedor/login", 303)
+
+    rut_normalizado = normalizar_rut(rut_prov)
 
     oferta = db.query(OfertaFinanciamiento).get(oferta_id)
     if not oferta:
         raise HTTPException(status_code=404, detail="Oferta no encontrada")
 
     factura = oferta.factura
-    if factura.proveedor_id != prov_id:
+    if normalizar_rut(factura.rut_emisor) != rut_normalizado:
         raise HTTPException(status_code=403, detail="No autorizado")
 
     oferta.estado = "Adjudicada"
@@ -387,17 +429,16 @@ def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_d
 @router.get("/importar_sii_facturas")
 @router.post("/importar_sii_facturas")
 def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
-    proveedor_id = request.session.get("proveedor_id")
-    if not proveedor_id:
+    rut_normalizadout_prov = request.session.get("proveedor_rut")
+    if not rut_prov:
         return RedirectResponse("/proveedor/login", 303)
 
-    proveedor = db.query(Proveedor).get(proveedor_id)
+    rut_normalizado = normalizar_rut(rut_prov)
+    rut_base = rut_normalizado[:-1]  # Ej: '76262370'
+    
+    proveedor = db.query(Proveedor).filter(Proveedor.rut == rut_normalizado).first()
     if not proveedor:
         return RedirectResponse("/proveedor/login", 303)
-
-    # RUT completo y base
-    rut_normalizado = normalizar_rut(proveedor.rut)  # Ej: '762623706'
-    rut_base = rut_normalizado[:-1]  # Ej: '76262370'
 
     periodo = datetime.now().strftime("%Y-%m")
     json_path = f"selenium_scripts/facturas_sii/data/detalle_{rut_base}_{periodo}.json"
@@ -465,7 +506,7 @@ def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
                 estado_dte="Cargada",
                 confirming_solicitado=False,
                 origen_confirmacion="SII",
-                proveedor_id=proveedor_id
+                proveedor_id=None
             )
             db.add(factura)
             nuevas_facturas.append(factura)
@@ -495,14 +536,16 @@ def ver_ofertas_factura_por_folio(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    proveedor_id = request.session.get("proveedor_id")
-    if not proveedor_id:
+    rut_prov = request.session.get("proveedor_rut")
+    if not rut_prov:
         return RedirectResponse("/proveedor/login", 303)
+
+    rut_normalizado = normalizar_rut(rut_prov)
 
     # Buscar la factura por folio Y proveedor logeado
     factura = (
         db.query(FacturaDB)
-          .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == proveedor_id)
+        .filter(FacturaDB.folio == folio, FacturaDB.rut_emisor == rut_normalizado[:-1])  
           .first()
     )
 
