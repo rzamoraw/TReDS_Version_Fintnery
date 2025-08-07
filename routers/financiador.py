@@ -421,6 +421,7 @@ def registrar_oferta(
         comision_flat=comision_flat,
         dias_anticipacion=dias_anticipacion,
         precio_cesion=precio_cesion,
+        monto_total=monto,
         estado="Oferta realizada"
     )
     db.add(nueva)

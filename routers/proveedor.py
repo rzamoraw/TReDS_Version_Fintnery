@@ -130,13 +130,15 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
             joinedload(FacturaDB.ofertas)
             .joinedload(OfertaFinanciamiento.financiador)
         )
-        .filter(FacturaDB.rut_emisor == rut_normalizado)
+        .filter(FacturaDB.rut_emisor.in_([rut_normalizado, rut_normalizado.replace("-", "")]))
         .all()
     )
     print(">> Facturas encontradas para el RUT:", rut_normalizado)
     for f in facturas:
         print(f"   - Folio: {f.folio}, Estado: {f.estado_dte or 'None'}")
     
+    facturas_cargadas = [f for f in facturas if f.estado_dte == "Cargada"]
+
     facturas_pendientes = [
         f for f in facturas if f.estado_dte in [
             "Confirmación solicitada al pagador",
@@ -147,35 +149,40 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
     facturas_confirmadas = [
         f for f in facturas if f.estado_dte in [
             "Confirmada por pagador",
-            "Enviado a confirming",
             "Confirming adjudicado"
         ]
     ]
     for f in facturas_confirmadas:
         print(f"   - Folio: {f.folio}, Estado: {f.estado_dte}")
 
+    facturas_confirming = [
+    f for f in facturas 
+    if f.estado_dte in ["Confirming solicitado", "Enviado a confirming", "Confirming adjudicado"]
+]
 
     ofertas_por_factura = {f.folio: f.ofertas for f in facturas}
     print(f">> Total facturas confirmadas visibles en frontend: {len(facturas_confirmadas)}")
 
-    facturas_cargadas = [f for f in facturas if f.estado_dte == "Cargada"]
-    facturas_confirming = db.query(FacturaDB).filter(
-    FacturaDB.rut_emisor == rut_normalizado,
-    FacturaDB.confirming_solicitado == True
-).all()
+    
+    
 
     return templates.TemplateResponse(
         "facturas.html",
         {
             "request": request,
-            "cargadas": facturas_cargadas,
-            "pendientes": facturas_pendientes,
-            "confirmadas": facturas_confirmadas,
-            "confirming": facturas_confirming,
-            "ofertas_por_factura": ofertas_por_factura,
-            "proveedor_nombre": nombre
-        }
-    )
+        "facturas": facturas,
+        "facturas_cargadas": facturas_cargadas,
+        "facturas_pendientes": facturas_pendientes,
+        "facturas_confirmadas": facturas_confirmadas,
+        "facturas_confirming": facturas_confirming,
+        "ofertas_por_factura": ofertas_por_factura,
+        "proveedor_nombre": nombre,
+        "total_cargadas": len(facturas_cargadas),
+        "total_pendientes": len(facturas_pendientes),
+        "total_confirmadas": len(facturas_confirmadas),
+        "total_confirming": len(facturas_confirming)
+    }
+)
 
 @router.post("/facturas")
 async def subir_factura_archivo(
@@ -286,6 +293,33 @@ def solicitar_confirmacion_factura_folio(folio: int, request: Request, db: Sessi
 
     return RedirectResponse(url="/proveedor/facturas", status_code=303)
 
+@router.post("/solicitar_confirmacion/ajax/{folio}")
+def solicitar_confirmacion_ajax(folio: int, request: Request, db: Session = Depends(get_db)):
+    rut_proveedor = request.session.get("proveedor_rut")
+    if not rut_proveedor:
+        raise HTTPException(status_code=401, detail="No autenticado")
+
+    rut_normalizado = normalizar_rut(rut_proveedor)
+
+    factura = db.query(FacturaDB).filter(
+        FacturaDB.folio == folio,
+        FacturaDB.rut_emisor == rut_normalizado
+    ).first()
+
+    if not factura:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    factura.estado_dte = "Confirmación solicitada al pagador"
+    factura.confirming_solicitado = True
+    factura.origen_confirmacion = "Proveedor"
+    db.commit()
+
+    return {
+        "success": True,
+        "folio": folio,
+        "nuevo_estado": factura.estado_dte
+    }
+
 @router.post("/solicitar_confirming/folio/{folio}")
 def solicitar_confirming_folio(folio: int, request: Request, db: Session = Depends(get_db)):
     rut_proveedor = request.session.get("proveedor_rut")
@@ -307,9 +341,12 @@ def solicitar_confirming_folio(folio: int, request: Request, db: Session = Depen
         print(">> No se encontraron facturas para este folio y RUT")
     else:
         for factura in facturas:
-            print(f">> Estado actual: {factura.estado_dte}")    
+            print(f">> Estado actual: {factura.estado_dte}")
+            print(f">> Comparando estado: '{factura.estado_dte}' == 'Confirmada por pagador'")    
             if factura.estado_dte == "Confirmada por pagador":
-                factura.estado_dte = "Confirmación solicitada al pagador"
+                factura.estado_dte == "Confirming solicitado"
+                factura.estado_dte == "Confirming adjudicado"
+                factura.confirming_solicitado = True
                 factura.origen_confirmacion = "Proveedor"
                 print(f">> Se solicitó confirming para folio {factura.folio}")
             else:

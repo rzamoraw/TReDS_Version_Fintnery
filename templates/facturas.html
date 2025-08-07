@@ -4,6 +4,7 @@
 <div class="container mt-5">
   <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>Mis Facturas</h2>
+    <a href="/proveedor/logout" class="btn btn-outline-secondary">Cerrar sesión</a>
   </div>
 
   <!-- Tabs de navegación -->
@@ -11,25 +12,25 @@
     <!-- 🟦 1. Cargadas -->
   <li class="nav-item" role="presentation">
     <button class="nav-link active" id="cargadas-tab" data-bs-toggle="tab" data-bs-target="#cargadas" type="button" role="tab" aria-controls="cargadas" aria-selected="true">
-      📝 Cargadas <span class="badge bg-secondary">{{ cargadas | length }}</span>
+      📝 Cargadas <span class="badge bg-secondary">{{ facturas_cargadas | length }}</span>
     </button>
   </li>
   <!-- 🟨 2. Pendientes -->
   <li class="nav-item" role="presentation">
     <button class="nav-link" id="pendientes-tab" data-bs-toggle="tab" data-bs-target="#pendientes" type="button" role="tab" aria-controls="pendientes" aria-selected="false">
-      📌 Pendientes <span class="badge bg-secondary">{{ pendientes | length }}</span>
+      📌 Pendientes <span class="badge bg-secondary">{{ facturas_pendientes | length }}</span>
     </button>
   </li>
   <!-- ✅ 3. Confirmadas -->
   <li class="nav-item" role="presentation">
     <button class="nav-link" id="confirmadas-tab" data-bs-toggle="tab" data-bs-target="#confirmadas" type="button" role="tab" aria-controls="confirmadas" aria-selected="false">
-      ✅ Confirmadas <span class="badge bg-secondary">{{ confirmadas | length }}</span>
+      ✅ Confirmadas <span class="badge bg-secondary">{{ facturas_confirmadas | length }}</span>
     </button>
   </li>
   <!-- 📊 4. Confirming solicitado -->
   <li class="nav-item" role="presentation">
     <button class="nav-link" id="confirming-tab" data-bs-toggle="tab" data-bs-target="#confirming" type="button" role="tab" aria-controls="confirming" aria-selected="false">
-      📚 Confirming solicitado <span class="badge bg-secondary">{{ confirming | length }}</span>
+      📚 Confirming solicitado <span class="badge bg-secondary">{{ facturas_confirming | length }}</span>
     </button>
   </li>
 </ul>
@@ -104,7 +105,9 @@
               <td>{{ factura.fecha_vencimiento }}</td>
               <td>{{ factura.origen_confirmacion or "Desconocido" }}</td>
               <td>
-                <button class="btn btn-sm btn-warning" onclick="solicitarConfirmacion({{ factura.folio }})">Solicitar confirmación</button>
+                <button class="btn btn-sm btn-outline-primary solicitar-confirmacion" data-folio="{{ factura.folio }}">
+                    Solicitar confirmación
+                 </button>
               </td>
             </tr>
             {% else %}
@@ -190,7 +193,7 @@
           </thead>
           <tbody>
             <p>Total facturas confirmadas en backend: {{ facturas_confirmadas | length }}</p>
-            {% for factura in facturas if factura.estado_dte == "Confirmada por pagador" %}
+            {% for factura in facturas_confirmadas %}
             <tr>
               <td>{{ factura.folio or 'Sin folio' }}</td>
               <td>{{ factura.razon_social_emisor or factura.rut_emisor }}</td>
@@ -236,7 +239,7 @@
 <div class="tab-pane fade" id="confirming" role="tabpanel" aria-labelledby="confirming-tab">
   <h5 class="text-primary mb-3">📬 Facturas con confirming solicitado</h5>
 
-  {% for factura in confirming %}
+  {% for factura in facturas_confirming %}
   <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
       <div>
@@ -268,7 +271,14 @@
               <td>{{ oferta.financiador.nombre }}</td>
               <td>{{ oferta.tasa }}%</td>
               <td>{{ oferta.spread }}%</td>
-              <td>${{ '{:,.0f}'.format(oferta.monto_neto) }}</td>
+              <td>
+                <td>
+                  {% if oferta.precio_cesion is not none %}
+                    ${{ '{:,.0f}'.format(oferta.precio_cesion) }}
+                  {% else %}
+                    N/A
+                  {% endif %}
+                </td>
               <td>
                 <form method="post" action="/proveedor/adjudicar/{{ factura.folio }}">
                   <input type="hidden" name="oferta_id" value="{{ oferta.id }}">
@@ -289,4 +299,37 @@
   <p class="text-muted text-center">No hay facturas con confirming solicitado.</p>
   {% endfor %}
 </div>
+<script>console.log("🧪 Script cargado");</script>
+<script>    
+document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll(".solicitar-confirmacion").forEach(button => {
+        button.addEventListener("click", function () {
+            const folio = this.getAttribute("data-folio");
+
+            fetch(`/proveedor/solicitar_confirmacion/ajax/${folio}`, {
+                method: "POST",
+                headers: { "X-Requested-With": "XMLHttpRequest" }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    // Ocultar o eliminar la fila actual (opcional)
+                    const fila = this.closest("tr");
+                    fila.remove();
+
+                    alert(`✅ Factura ${data.folio} ahora está en estado: ${data.nuevo_estado}`);
+                    // Aquí puedes también moverla a otra tabla si quieres
+                } else {
+                    alert("❌ No se pudo actualizar la factura.");
+                }
+            })
+            .catch(err => {
+                console.error("Error:", err);
+                alert("❌ Error inesperado.");
+            });
+        });
+    });
+});
+</script>
 {% endblock %}    
+
