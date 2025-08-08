@@ -51,3 +51,9 @@ facturas_sii/data/
 facturas_sii/xml/
 
 >>>>>>> 43ff33c (Primer commit: scripts Selenium para login y descarga de DTE desde SII)
+treds.db
+*.sqlite
+__pycache__/
+*.pyc
+.env
+
