@@ -33,6 +33,14 @@
       📚 Confirming solicitado <span class="badge bg-secondary">{{ facturas_confirming | length }}</span>
     </button>
   </li>
+  <!-- 5) Adjudicadas -->
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="adjudicadas-tab" data-bs-toggle="tab"
+          data-bs-target="#adjudicadas" type="button" role="tab"
+          aria-controls="adjudicadas" aria-selected="false">
+    🏁 Adjudicadas <span class="badge bg-secondary">{{ total_adjudicadas }}</span>
+    </button>
+</li>
 </ul>
 
   <div class="tab-content" id="facturasTabsContent">
@@ -255,40 +263,45 @@
       {% set ofertas = ofertas_por_factura.get(factura.folio, []) %}
       {% if ofertas %}
       <div class="table-responsive">
-        <table class="table table-sm table-bordered table-hover bg-white">
-          <thead class="table-light">
-            <tr>
-              <th>Financiador</th>
-              <th>Tasa</th>
-              <th>Spread</th>
-              <th>Precio Cesión</th>
-              <th>Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for oferta in ofertas %}
-            <tr>
-              <td>{{ oferta.financiador.nombre }}</td>
-              <td>{{ oferta.tasa }}%</td>
-              <td>{{ oferta.spread }}%</td>
-              <td>
-                <td>
-                  {% if oferta.precio_cesion is not none %}
-                    ${{ '{:,.0f}'.format(oferta.precio_cesion) }}
-                  {% else %}
-                    N/A
-                  {% endif %}
-                </td>
-              <td>
-                <form method="post" action="/proveedor/adjudicar/{{ factura.folio }}">
-                  <input type="hidden" name="oferta_id" value="{{ oferta.id }}">
-                  <button type="submit" class="btn btn-success btn-sm">✅ Adjudicar</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+          <table class="table table-sm table-bordered table-hover bg-white">
+  <thead class="table-light">
+    <tr>
+      <th>Financiador</th>
+      <th class="text-end">Tasa total mensual (%)</th>
+      <th class="text-end">Días</th>
+      <th class="text-end">Comisión ($)</th>
+      <th class="text-end">Precio Cesión ($)</th>
+      <th>Acción</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for oferta in ofertas %}
+    {% set tasa_total = ((oferta.tasa_interes or 0) + (oferta.financiador.costo_fondos_mensual or 0)) %}
+    <tr>
+      <td>{{ oferta.financiador.nombre }}</td>
+      <td class="text-end">
+        {{ '%.2f' % tasa_total }} %
+      </td>
+      <td class="text-end">
+        {{ oferta.dias_anticipacion if oferta.dias_anticipacion is not none else 'N/D' }}
+      </td>
+      <td class="text-end">
+        ${{ '{:,.0f}'.format(oferta.comision_flat or 0) }}
+      </td>
+      <td class="text-end">
+        {% if oferta.precio_cesion is not none %}
+          ${{ '{:,.0f}'.format(oferta.precio_cesion) }}
+        {% else %} N/A {% endif %}
+      </td>
+      <td>
+        <form method="post" action="/proveedor/aceptar-oferta/{{ oferta.id }}">
+          <button type="submit" class="btn btn-success btn-sm">✅ Adjudicar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>  
       </div>
       {% else %}
       <p class="text-muted">Sin ofertas aún para esta factura.</p>
@@ -299,6 +312,46 @@
   <p class="text-muted text-center">No hay facturas con confirming solicitado.</p>
   {% endfor %}
 </div>
+
+<!-- 🏁 Tab: Confirming adjudicado -->
+ <div class="tab-pane fade" id="adjudicadas" role="tabpanel" aria-labelledby="adjudicadas-tab">
+  <h5 class="mb-3">🏁 Facturas con confirming adjudicado</h5>
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover bg-white">
+      <thead class="table-light">
+        <tr>
+          <th>Folio</th>
+          <th>Emisor</th>
+          <th>Receptor</th>
+          <th>Monto</th>
+          <th>F. Emisión</th>
+          <th>F. Venc.</th>
+          <th>Financiador</th>
+          <th>Fondo</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in facturas_adjudicadas %}
+        <tr>
+          <td>{{ f.folio }}</td>
+          <td>{{ f.razon_social_emisor }}</td>
+          <td>{{ f.razon_social_receptor }}</td>
+          <td>${{ '{:,.0f}'.format(f.monto) }}</td>
+          <td>{{ f.fecha_emision }}</td>
+          <td>{{ f.fecha_vencimiento }}</td>
+          <td>{{ f.financiador.nombre if f.financiador else '-' }}</td>
+          <td>{{ f.financiador.fondo.nombre if f.financiador and f.financiador.fondo else '-' }}</td>
+          <td><span class="text-success">Confirming adjudicado</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted">Sin adjudicadas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <script>console.log("🧪 Script cargado");</script>
 <script>    
 document.addEventListener("DOMContentLoaded", function () {

@@ -149,7 +149,6 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
     facturas_confirmadas = [
         f for f in facturas if f.estado_dte in [
             "Confirmada por pagador",
-            "Confirming adjudicado"
         ]
     ]
     for f in facturas_confirmadas:
@@ -157,7 +156,13 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
 
     facturas_confirming = [
     f for f in facturas 
-    if f.estado_dte in ["Confirming solicitado", "Enviado a confirming", "Confirming adjudicado"]
+    if f.estado_dte in ["Confirming solicitado", "Enviado a confirming"]
+    ]
+
+    # NUEVO: adjudicadas
+    facturas_adjudicadas = [
+    f for f in facturas
+    if f.estado_dte == "Confirming adjudicado"
 ]
 
     ofertas_por_factura = {f.folio: f.ofertas for f in facturas}
@@ -170,19 +175,21 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
         "facturas.html",
         {
             "request": request,
-        "facturas": facturas,
-        "facturas_cargadas": facturas_cargadas,
-        "facturas_pendientes": facturas_pendientes,
-        "facturas_confirmadas": facturas_confirmadas,
-        "facturas_confirming": facturas_confirming,
-        "ofertas_por_factura": ofertas_por_factura,
-        "proveedor_nombre": nombre,
-        "total_cargadas": len(facturas_cargadas),
-        "total_pendientes": len(facturas_pendientes),
-        "total_confirmadas": len(facturas_confirmadas),
-        "total_confirming": len(facturas_confirming)
-    }
-)
+            "facturas": facturas,
+            "facturas_cargadas": facturas_cargadas,
+            "facturas_pendientes": facturas_pendientes,
+            "facturas_confirmadas": facturas_confirmadas,
+            "facturas_confirming": facturas_confirming,
+            "facturas_adjudicadas": facturas_adjudicadas,
+            "ofertas_por_factura": ofertas_por_factura,
+            "proveedor_nombre": nombre,
+            "total_cargadas": len(facturas_cargadas),
+            "total_pendientes": len(facturas_pendientes),
+            "total_confirmadas": len(facturas_confirmadas),
+            "total_confirming": len(facturas_confirming),
+            "total_adjudicadas": len(facturas_adjudicadas)
+        }
+    )
 
 @router.post("/facturas")
 async def subir_factura_archivo(
@@ -331,40 +338,40 @@ def solicitar_confirming_folio(folio: int, request: Request, db: Session = Depen
     print(">> RUT desde sesión (antes de normalizar):", rut_proveedor)
     print(">> RUT normalizado:", rut_normalizado)
 
-    facturas = (
+    factura = (
         db.query(FacturaDB)
-        .filter(FacturaDB.folio == folio, FacturaDB.rut_emisor == rut_normalizado)
-        .all()
+        .filter(FacturaDB.folio == folio, FacturaDB.rut_emisor.in_([rut_normalizado, rut_normalizado.replace("-", "")]))
+        .first()
     )
 
-    if not facturas:
+    if not factura:
         print(">> No se encontraron facturas para este folio y RUT")
-    else:
-        for factura in facturas:
-            print(f">> Estado actual: {factura.estado_dte}")
-            print(f">> Comparando estado: '{factura.estado_dte}' == 'Confirmada por pagador'")    
-            if factura.estado_dte == "Confirmada por pagador":
-                factura.estado_dte == "Confirming solicitado"
-                factura.estado_dte == "Confirming adjudicado"
-                factura.confirming_solicitado = True
-                factura.origen_confirmacion = "Proveedor"
-                print(f">> Se solicitó confirming para folio {factura.folio}")
-            else:
-                print(">> No se solicitó confirming porque el estado no es 'Confirmada por pagador'")
+        return RedirectResponse("/proveedor/facturas?err=no_factura", 303)
+    print(f">> Estado actual folio {folio}: {factura.estado_dte}")
 
+    # ✅ Solo permite solicitar confirming desde “Confirmada por pagador”
+    if (factura.estado_dte or"").strip() == "Confirmada por pagador":
+        print(">> No se solicitó confirming: estado no es 'Confirmada por pagador'")
+        factura.estado_dte = "Confirming solicitado"
+        factura.confirming_solicitado = True
+        factura.origen_confirmacion = "Proveedor"
+        print(f">> Se solicitó confirming para folio {factura.folio}")
+            
+        db.add(factura)
         db.commit()
-
-        for factura in facturas:
-            db.refresh(factura)
-            print(">> Estado final:", factura.estado_dte, "| Origen", factura.origen_confirmacion)
-
-    return RedirectResponse("/proveedor/facturas", 303)
-
+        db.refresh(factura)
+        
+        print(f"[SC] después -> folio={factura.folio} estado={repr(factura.estado_dte)} confirming={factura.confirming_solicitado}")
+        return RedirectResponse("/proveedor/facturas?msg=confirming_solicitado", 303)
+    else:
+        print(f"[SC] estado no permitido: {repr(factura.estado_dte)}")
+        return RedirectResponse("/proveedor/facturas?warn=estado_invalido", 303)
+        
 @router.post("/rechazar_vencimiento/folio/{folio}")
 def rechazar_vencimiento_folio(folio: int, request: Request, db: Session = Depends(get_db)):
     rut_proveedor = request.session.get("proveedor_rut")
     if not rut_proveedor:
-        return RedirectResponse("/proveedor/login", 303)
+        return RedirectResponse("/proveedor/facturas?msg=confirming_solicitado", 303)
 
     
     rut_normalizado = normalizar_rut(rut_proveedor)
@@ -408,15 +415,18 @@ def ver_ofertas_por_folio(folio: int, request: Request, db: Session = Depends(ge
           .all()
     )
 
+    # Flag para deshabilitar botón si ya fue adjudicada
+    bloqueado = (factura.estado_dte == "Confirming adjudicado")
+
     return templates.TemplateResponse(
         "ofertas_proveedor.html",
         {
             "request": request,
             "factura": factura,
-            "ofertas": ofertas
+            "ofertas": ofertas,
+            "bloqueado": bloqueado
         }
     )
-
 
 @router.post("/aceptar-oferta/{oferta_id}")
 def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_db)):
@@ -426,26 +436,36 @@ def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_d
 
     rut_normalizado = normalizar_rut(rut_prov)
 
+    # 1) Cargar oferta y su factura
     oferta = db.query(OfertaFinanciamiento).get(oferta_id)
     if not oferta:
         raise HTTPException(status_code=404, detail="Oferta no encontrada")
 
     factura = oferta.factura
+    if not factura:
+        raise HTTPException(status_code=404, detail="Factura asociada no encontrada")
+
+    # 2) Seguridad: la factura debe pertenecer al proveedor logeado
     if normalizar_rut(factura.rut_emisor) != rut_normalizado:
         raise HTTPException(status_code=403, detail="No autorizado")
 
-    # Adjudica la oferta seleccionada
+    # 3) Marcar oferta adjudicada
     oferta.estado = "Adjudicada"
 
-    # Marca las otras ofertas como no adjudicadas
+    # 4) Marcar el resto de ofertas de ESTA factura como no adjudicadas
     db.query(OfertaFinanciamiento).filter(
-        OfertaFinanciamiento.folio == factura.folio,
+        OfertaFinanciamiento.factura_id == factura.id,
         OfertaFinanciamiento.id != oferta_id
-    ).update({"estado": "No adjudicada"})
+    ).update({"estado": "No adjudicada"}, synchronize_session=False)
 
-    factura.financiador_adjudicado = oferta.financiador_id
+    # 5) Actualizar la factura
+    factura.financiador_adjudicado = oferta.financiador_id  # INTEGER -> INTEGER
     factura.estado_dte = "Confirming adjudicado"
+
     db.commit()
+
+    # 6) (Opcional) refrescar si quieres loguear
+    # db.refresh(factura); db.refresh(oferta)
 
     return RedirectResponse(f"/proveedor/ofertas-folio/{factura.folio}?msg=oferta_adjudicada", status_code=303)
 
