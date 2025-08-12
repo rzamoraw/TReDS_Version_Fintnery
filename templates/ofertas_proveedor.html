@@ -1,76 +1,93 @@
 {% extends "base.html" %}
-
 {% block content %}
 <div class="container mt-5">
   <h2>Ofertas recibidas — Factura {{ factura.folio }}</h2>
-  <p>
-  <strong>Monto:</strong> ${{ '{:,.0f}'.format(factura.monto) }} |
-  <strong>Vencimiento:</strong> {{ factura.fecha_vencimiento }}
-</p>
 
-{% if request.query_params.msg == "oferta_adjudicada" %}
-  <div class="alert alert-success mt-3">
-    🎉 Oferta adjudicada correctamente. Pronto recibirás el confirming.
+  <!-- Datos clave de la factura -->
+  <div class="mb-2">
+    <strong>Monto:</strong> ${{ '{:,.0f}'.format(factura.monto or 0) }} |
+    <strong>Vencimiento vigente:</strong> {{ factura.fecha_vencimiento }}
   </div>
-{% endif %}
-
-{% if bloqueado %}
-  <div class="alert alert-info mt-2">
-    Esta factura ya fue <strong>adjudicada</strong>. No es posible adjudicar otra oferta.
+  <div class="mb-3">
+    <strong>Pagador:</strong> {{ factura.razon_social_receptor or '—' }}
+    <small class="text-muted ms-2">RUT: {{ factura.rut_receptor or '—' }}</small>
   </div>
-{% endif %}
 
-<table class="table table-bordered table-hover mt-4 bg-white">
-  <thead class="table-light">
-    <tr>
-      <th>Fondo</th>
-      <th>Financiador</th>
-      <th>Tasa total mensual (%)</th>
-      <th>Días anticipación</th>
-      <th>Comisión flat ($)</th>
-      <th><strong>Precio cesión ($)</strong></th>
-      <th>Acción</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for oferta in ofertas %}
-      <tr>
-        <td>{{ oferta.financiador.fondo.nombre if oferta.financiador and oferta.financiador.fondo else '—' }}</td>
-        <td>{{ oferta.financiador.nombre if oferta.financiador else '—' }}</td>
-        <td>
-          {% if oferta.tasa_interes is not none %}
-            {{ '%.2f' % (oferta.tasa_interes * 100) }} %
-          {% else %}
-            N/D
-          {% endif %}
-        </td>
-        <td>{{ oferta.dias_anticipacion }}</td>
-        <td>${{ '{:,.0f}'.format(oferta.comision_flat or 0) }}</td>
-        <td><strong>${{ '{:,.0f}'.format(oferta.precio_cesion or 0) }}</strong></td>
-        <td>
-          {% if bloqueado %}
-            {% if oferta.estado == "Adjudicada" %}
-              <span class="badge bg-success">Adjudicada</span>
-            {% else %}
-              <span class="badge bg-secondary">No adjudicada</span>
-            {% endif %}
-          {% else %}
-            <form method="post" action="/proveedor/aceptar-oferta/{{ oferta.id }}">
-              <button class="btn btn-sm btn-success">Adjudicar</button>
-            </form>
-          {% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <!-- Mensajes (desde query params) -->
+  {% set msg = request.query_params.get('msg') %}
+  {% if msg == "oferta_adjudicada" %}
+    <div class="alert alert-success mt-3">
+      🎉 Oferta adjudicada correctamente. Pronto recibirás el confirming.
     </div>
+  {% endif %}
+
+  {% if bloqueado %}
+    <div class="alert alert-info mt-2">
+      Esta factura ya fue <strong>adjudicada</strong>. No es posible adjudicar otra oferta.
+    </div>
+  {% endif %}
+
+  {% if ofertas and ofertas|length > 0 %}
+    <table class="table table-bordered table-hover mt-4 bg-white">
+      <thead class="table-light">
+        <tr>
+          <th>Fondo</th>
+          <th>Financiador</th>
+          <th class="text-end">Tasa total mensual (%)</th>
+          <th class="text-end">Días (vigentes)</th>
+          <th class="text-end">Comisión flat ($)</th>
+          <th class="text-end"><strong>Precio cesión ($)</strong></th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for oferta in ofertas %}
+          <tr>
+            <td>{{ oferta.financiador.fondo.nombre if oferta.financiador and oferta.financiador.fondo else '—' }}</td>
+            <td>{{ oferta.financiador.nombre if oferta.financiador else '—' }}</td>
+
+            <!-- Tasa total mensual calculada en backend: tasa_interes + costo_fondos_mensual -->
+            <td class="text-end">
+              {% if oferta._tasa_total_mensual is not none %}
+                {{ '%.2f' % (oferta._tasa_total_mensual * 100) }}
+              {% else %} N/D {% endif %}
+            </td>
+
+            <!-- Días vigentes hasta el vencimiento (no negativos) -->
+            <td class="text-end">{{ oferta._dias_vigentes if oferta._dias_vigentes is not none else 'N/D' }}</td>
+
+            <td class="text-end">${{ '{:,.0f}'.format(oferta.comision_flat or 0) }}</td>
+
+            <!-- Precio de cesión calculado con vencimiento vigente -->
+            <td class="text-end">
+              {% if oferta._precio_cesion_calc is not none %}
+                <strong>${{ '{:,.0f}'.format(oferta._precio_cesion_calc) }}</strong>
+              {% else %} N/D {% endif %}
+            </td>
+
+            <td>
+              {% if bloqueado %}
+                {% if oferta.estado == "Adjudicada" %}
+                  <span class="badge bg-success">Adjudicada</span>
+                {% else %}
+                  <span class="badge bg-secondary">No adjudicada</span>
+                {% endif %}
+              {% else %}
+                <form method="post" action="/proveedor/aceptar-oferta/{{ oferta.id }}">
+                  <button class="btn btn-sm btn-success">✅ Adjudicar</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   {% else %}
     <div class="alert alert-info mt-4">
       No se han recibido ofertas aún para esta factura.
     </div>
   {% endif %}
 
-  <a href="/proveedor" class="btn btn-outline-secondary mt-3">← Volver a mis facturas</a>
+  <a href="/proveedor/facturas" class="btn btn-outline-secondary mt-3">← Volver a mis facturas</a>
 </div>
 {% endblock %}

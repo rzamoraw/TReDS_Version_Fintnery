@@ -2,12 +2,12 @@
 from fastapi import APIRouter, Request, Form, Depends, File, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from passlib.context import CryptContext
 
 from database import SessionLocal
-from models import Pagador, FacturaDB
-from datetime import datetime, timedelta
+from models import Pagador, FacturaDB, Financiador, Fondo
+from datetime import datetime, timedelta, date
 from rut_utils import normalizar_rut
 import json
 
@@ -138,13 +138,40 @@ def ver_facturas_pagador(request: Request, db: Session = Depends(get_db)):
         ])
     ).all()
 
+    # --- Utilidades para el template (no rompe el hito) ---
+    dias_por_folio = {}
+    adjudicacion_por_folio = {}
+
+    for factura in facturas_gestionadas:
+        # Días al vencimiento (desde emisión)
+        try:
+            if factura.fecha_emision and factura.fecha_vencimiento:
+                dias_por_folio[factura.folio] = (factura.fecha_vencimiento - factura.fecha_emision).days
+            else:
+                dias_por_folio[factura.folio] = "—"
+        except Exception:
+            dias_por_folio[factura.folio] = "—"
+
+        # Adjudicación (solo si adjudicada)
+        if factura.estado_dte == "Confirming adjudicado" and factura.financiador_adjudicado:
+            fin = db.query(Financiador).options(joinedload(Financiador.fondo)).get(int(factura.financiador_adjudicado))
+            if fin:
+                fondo_nombre = fin.fondo.nombre if fin.fondo else "—"
+                adjudicacion_por_folio[factura.folio] = f"{fin.nombre} ({fondo_nombre})"
+            else:
+                adjudicacion_por_folio[factura.folio] = "—"
+        else:
+            adjudicacion_por_folio[factura.folio] = "—"
+
     return templates.TemplateResponse("facturas_pagador.html", {
         "request": request,
         "facturas_pendientes": facturas_pendientes,
         "facturas_solicitadas": facturas_solicitadas,
         "facturas_gestionadas": facturas_gestionadas,
         "pagador_nombre": session.get("nombre"),
-        "facturas_descartadas": []
+        "facturas_descartadas": [],
+        "dias_por_folio":dias_por_folio,
+        "adjudicacion_por_folio": adjudicacion_por_folio
     })
 
 # ───────────── Editar Vencimiento ─────────────
@@ -175,10 +202,33 @@ def editar_vencimiento_pagador(
 
     try:
         nueva_fecha = datetime.strptime(nueva_fecha_vencimiento, "%Y-%m-%d").date()
+    except ValueError:
+        return RedirectResponse("/pagador/facturas?msg=fecha_invalida", status_code=303)
+    
+    hoy = date.today()
+
+    # ⛔ no permitir vencimiento en el pasado
+    if nueva_fecha < hoy:
+        return RedirectResponse("/pagador/facturas?msg=vencimiento_pasado", status_code=303)
+    
+    # ⛔ no permitir vencimiento antes de la emisión
+    if factura.fecha_emision and nueva_fecha < factura.fecha_emision:
+        return RedirectResponse("/pagador/facturas?msg=vencimiento_antes_emision", status_code=303)
+    
+    try:
+        # ✅ si pasa validaciones, persistimos
         factura.fecha_vencimiento = nueva_fecha
         factura.origen_confirmacion = "Fecha modificada por pagador"
         db.commit()
         print(f"✅ Fecha de vencimiento actualizada para folio {folio}")
+
+        # 🔹 Calcular días de plazo tal como en financiador
+        dias_plazo = (nueva_fecha - hoy).days
+        print(f"📅 Plazo calculado desde hoy: {dias_plazo} días")
+
+        db.commit()
+        print(f"✅ Fecha de vencimiento actualizada para folio {folio}")
+    
     except Exception as e:
         db.rollback()
         print(f"❌ Error al actualizar vencimiento: {e}")
@@ -204,12 +254,18 @@ def confirmar_factura(folio: int, request: Request, db: Session = Depends(get_db
     if factura is None:
         print(f"❌ Factura con folio {folio} no encontrada o no en estado confirmable.")
         return RedirectResponse(url="/pagador/facturas?msg=error", status_code=303)
+    
+    # ⛔ no permitir confirmar con vencimiento en el pasado
+    hoy = date.today()
+    if not factura.fecha_vencimiento or factura.fecha_vencimiento < hoy:
+        return RedirectResponse(url="/pagador/facturas?msg=vencimiento_pasado", status_code=303)
 
     factura.estado_dte = "Confirmada por pagador"
     factura.origen_confirmacion = "Confirmada manualmente por pagador"
 
     if not factura.fecha_vencimiento_original:
         factura.fecha_vencimiento_original = factura.fecha_vencimiento
+        factura.fecha_confirmacion = date.today()
 
     try:
         db.commit()

@@ -103,6 +103,8 @@ class FacturaDB(Base):
     fecha_emision = Column(Date)
     fecha_vencimiento = Column(Date)
     fecha_vencimiento_original = Column(Date, nullable=True)
+    fecha_confirmacion = Column(Date, nullable=True)
+    fecha_recepcion = Column(Date, nullable=True)
     modificacion_aceptada_por_proveedor = Column(Boolean, nullable=True, default=None)
     confirming_solicitado = Column(Boolean, default=False)
     origen_confirmacion = Column(String, default="Desconocido")

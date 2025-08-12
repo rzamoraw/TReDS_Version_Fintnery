@@ -9,6 +9,14 @@
   <div class="alert alert-warning">⚠️ Factura rechazada correctamente.</div>
 {% elif request.query_params.msg == 'fecha_actualizada' %}
   <div class="alert alert-info">📅 Fecha de vencimiento actualizada.</div>
+{% elif request.query_params.msg == 'fecha_invalida' %}
+  <div class="alert alert-danger">❌ Formato de fecha inválido. Usa AAAA-MM-DD.</div>
+{% elif request.query_params.msg == 'vencimiento_pasado' %}
+  <div class="alert alert-danger">⛔ La fecha de vencimiento no puede ser anterior a hoy.</div>
+{% elif request.query_params.msg == 'vencimiento_antes_emision' %}
+  <div class="alert alert-danger">⛔ La fecha de vencimiento no puede ser anterior a la fecha de emisión.</div>
+{% elif request.query_params.msg == 'error_bd' %}
+  <div class="alert alert-danger">❌ Ocurrió un error al guardar los cambios. Intenta nuevamente.</div>
 {% elif request.query_params.msg == 'error' %}
   <div class="alert alert-danger">❌ No se pudo procesar la acción.</div>
 {% endif %}
@@ -162,8 +170,9 @@
           <th>Estado</th>
           <th>Vencimiento</th>
           <th>Origen</th>
-          <th>Aceptación</th>
-          <th>Días desde emisión</th>
+          <th>Fecha de confirmación</th>
+          <th>Días al vencimiento</th>
+          <th>Adjudicada a</th>
         </tr>
       </thead>
       <tbody>
@@ -183,6 +192,14 @@
               {{ factura.origen_confirmacion }}
             {% endif %}
           </td>
+          <!-- Fecha de confirmación (simple; puede venir vacío) -->
+          <td>{{ factura.fecha_confirmacion or "—" }}</td>
+
+          <!-- Placeholder de días (lo calculamos en el paso 2) -->
+          <td>{{ dias_por_folio.get(factura.folio, "—") }}</td>
+
+          <!-- Placeholder adjudicado (lo resolvemos en el paso 2) -->
+          <td>{{ adjudicacion_por_folio.get(factura.folio, "—") }}</td>
         </tr>
         {% endfor %}
       </tbody>

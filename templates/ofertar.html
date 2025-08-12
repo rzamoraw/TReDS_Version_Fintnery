@@ -12,6 +12,8 @@
     <strong>Emisor:</strong> {{ factura.razon_social_emisor }}<br>
     <strong>Monto:</strong> ${{ '{:,.0f}'.format(factura.monto) }}<br>
     <strong>Vencimiento:</strong> {{ factura.fecha_vencimiento }}
+    <strong>Pagador:</strong> {{ factura.razon_social_receptor }}<br>
+    <strong>RUT Pagador:</strong> {{ factura.rut_receptor }}
   </div>
 
   <!-- Formulario de oferta -->

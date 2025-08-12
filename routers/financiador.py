@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi import Query
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-from datetime import date, datetime          # ← date ya estaba, datetime seguía
+from datetime import date, datetime, timedelta          # ← date ya estaba, datetime seguía
 import os
 from dotenv import load_dotenv
 
@@ -31,6 +31,19 @@ def get_db():
 def _solo_admin(fin: Financiador):
     if not fin.es_admin:
         raise HTTPException(status_code=403, detail="Solo administradores")
+    
+def vencimiento_base(factura):
+    """
+    Autoridad: factura.fecha_vencimiento (editada por pagador).
+    Fallbacks por si hay facturas antiguas sin ese campo:
+    """
+    base = factura.fecha_vencimiento \
+        or factura.fecha_vencimiento_original \
+        or (factura.fecha_emision + timedelta(days=30))
+    # nunca en el pasado para el cálculo de días
+    if base < date.today():
+        base = date.today()
+    return base
 
 # ──────────────────────────────── GET: Registro Financiador ────────────────────────────────
 @router.get("/registro")
@@ -370,7 +383,6 @@ def guardar_costo_fondos(
     # Redirige siempre a costo-fondos con ?msg=ok (para mostrar opciones)
     return RedirectResponse("/financiador/costo-fondos?msg=ok", status_code=303)
 
-# ──────────────────────────────── Ofertas ────────────────────────────────
 @router.get("/ofertar/{folio}")
 def mostrar_formulario_oferta(folio: int, request: Request, db: Session = Depends(get_db)):
     financiador_id = request.session.get("financiador_id")
@@ -382,13 +394,22 @@ def mostrar_formulario_oferta(folio: int, request: Request, db: Session = Depend
     if not factura:
         return templates.TemplateResponse("error.html", {"request": request, "mensaje": "Factura no encontrada"})
 
-    dias_anticipacion = (factura.fecha_vencimiento - date.today()).days
+    # 🔐 Determinar fecha base de descuento (fecha confirmada por pagador si existe)
+    fecha_base_descuento = getattr(factura, "fecha_confirmada_pagador", None) or date.today()
+
+    # 🔐 Calcular días de anticipación
+    dias_anticipacion = max((factura.fecha_vencimiento - fecha_base_descuento).days, 0)
+
     return templates.TemplateResponse("ofertar.html", {
         "request": request,
         "factura": factura,
         "financiador_nombre": financiador.nombre,
-        "dias_anticipacion": dias_anticipacion
+        "dias_anticipacion": dias_anticipacion,
+        "fecha_base_descuento": fecha_base_descuento,
+        "pagador_nombre": factura.razon_social_receptor,
+        "pagador_rut": factura.rut_receptor
     })
+
 
 @router.post("/registrar-oferta/{folio}")
 def registrar_oferta(
@@ -409,17 +430,21 @@ def registrar_oferta(
 
     financiador = db.query(Financiador).get(financiador_id)
 
+    # ✅ Recalcular días según fecha confirmada del pagador
+    fecha_base_descuento = getattr(factura, "fecha_confirmada_pagador", None) or date.today()
+    dias_calc = max((factura.fecha_vencimiento - fecha_base_descuento).days, 0)
+
     monto = factura.monto
-    tasa_total = tasa_interes + financiador.costo_fondos_mensual
-    descuento = monto * (tasa_total / 100) * (dias_anticipacion / 30)
-    precio_cesion = monto - descuento - comision_flat
+    tasa_total = (tasa_interes or 0) + (financiador.costo_fondos_mensual or 0)
+    descuento = monto * (tasa_total / 100) * (dias_calc / 30)
+    precio_cesion = monto - descuento - (comision_flat or 0)
 
     nueva = OfertaFinanciamiento(
         factura_id=factura.id,
         financiador_id=financiador_id,
         tasa_interes=tasa_interes,
-        comision_flat=comision_flat,
-        dias_anticipacion=dias_anticipacion,
+        comision_flat=comision_flat or 0,
+        dias_anticipacion=dias_calc,
         precio_cesion=precio_cesion,
         monto_total=monto,
         estado="Oferta realizada"
@@ -441,8 +466,20 @@ def actualizar_oferta(
     if not oferta or oferta.financiador_id != request.session.get("financiador_id"):
         raise HTTPException(status_code=403)
 
+    factura = oferta.factura
+    base = vencimiento_base(factura)
+    dias_calc = (base - date.today()).days
+
+    monto = factura.monto
+    tasa_total = (tasa_interes or 0) + (oferta.financiador.costo_fondos_mensual or 0)
+    descuento = monto * (tasa_total / 100.0) * (max(dias_calc, 0) / 30.0)
+    precio_cesion = max(0, monto - descuento - (comision_flat or 0))
+    
     oferta.tasa_interes = tasa_interes
     oferta.comision_flat = comision_flat
+    oferta.dias_anticipacion = max(dias_calc, 0)
+    oferta.precio_cesion = precio_cesion
+    
     db.commit()
 
     return RedirectResponse(f"/financiador/ver-oferta/{oferta_id}", 303)

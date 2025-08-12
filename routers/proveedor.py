@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session, joinedload
 from passlib.context import CryptContext
 from database import SessionLocal
 from models import Proveedor, FacturaDB, OfertaFinanciamiento, Financiador, Pagador
-from datetime import datetime
+from datetime import datetime, timedelta, date
 import os, zipfile, xml.etree.ElementTree as ET
 from fastapi import HTTPException
 from rut_utils import normalizar_rut  # Asegúrate de tener esto al inicio
+from urllib.parse import urlencode
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -107,7 +108,7 @@ def inicio_proveedor(request: Request, db: Session = Depends(get_db)):
 
 # ─────────────────────────  Facturas del proveedor ──────────────────────────
 @router.get("/facturas")
-def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db)):
+def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db), msg: str = None):
     rut_proveedor = request.session.get("proveedor_rut")
     if not rut_proveedor:
         return RedirectResponse(url="/proveedor/login", status_code=303)
@@ -202,7 +203,9 @@ async def subir_factura_archivo(
         return RedirectResponse(url="/proveedor/login", status_code=303)
 
     rut_normalizado = normalizar_rut(rut_proveedor)
-    proveedor = db.query(Proveedor).get(proveedor_id)
+    proveedor = db.query(Proveedor).filter(Proveedor.rut == rut_normalizado).first()
+    if not proveedor:
+        return RedirectResponse(url="/proveedor/login", status_code=303)
     proveedor_nombre = proveedor.nombre if proveedor else "Desconocido"
 
     contenido = await archivo.read()
@@ -378,7 +381,7 @@ def rechazar_vencimiento_folio(folio: int, request: Request, db: Session = Depen
     
     factura = (
         db.query(FacturaDB)
-        .filter(FacturaDB.folio == folio, FacturaDB.proveedor_id == rut_normalizado)
+        .filter(FacturaDB.folio == folio, FacturaDB.emisor_id == rut_normalizado)
         .first()
     )
     if factura and factura.estado_dte == "Confirmada por pagador":
@@ -410,7 +413,7 @@ def ver_ofertas_por_folio(folio: int, request: Request, db: Session = Depends(ge
               joinedload(OfertaFinanciamiento.financiador)
               .joinedload(Financiador.fondo)
           )
-          .filter_by(factura_id=factura_id)
+          .filter_by(OfertaFinanciamiento.factura_id == factura.id)
           .order_by(OfertaFinanciamiento.tasa_interes.asc())
           .all()
     )
@@ -467,7 +470,7 @@ def aceptar_oferta(oferta_id: int, request: Request, db: Session = Depends(get_d
     # 6) (Opcional) refrescar si quieres loguear
     # db.refresh(factura); db.refresh(oferta)
 
-    return RedirectResponse(f"/proveedor/ofertas-folio/{factura.folio}?msg=oferta_adjudicada", status_code=303)
+    return RedirectResponse(f"/proveedor/facturas?tab=adjudicadas&msg=oferta_adjudicada", status_code=303)
 
 @router.get("/importar_sii_facturas")
 @router.post("/importar_sii_facturas")
@@ -483,8 +486,6 @@ def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
         return templates.TemplateResponse("error.html", {"request": request, "mensaje": "Proveedor no encontrado"})
     
     rut_base = rut_normalizado[:-1]  # Ej: '76262370'
-    dv_base = proveedor.rut[-1]
-
     nombre = proveedor.nombre
     print(f"Proveedor logeado: {nombre} (RUT original: {proveedor.rut})")
 
@@ -513,6 +514,10 @@ def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
     nuevas_facturas = []
     facturas_descartadas = []
 
+    # Formatos de fecha que usa el JSON del SII
+    FMT_DOC = "%d/%m/%Y"
+    FMT_RECEP = "%d/%m/%Y %H:%M:%S"
+
     for d in facturas_data:
         if not isinstance(d, dict):
             errores.append(f"Entrada inválida ignorada: {d}")
@@ -539,44 +544,75 @@ def importar_facturas_sii(request: Request, db: Session = Depends(get_db)):
                 errores.append(f"Factura duplicada folio {folio}")
                 continue
 
+            # -------- Fechas --------
+            # Emisión (obligatoria en el JSON)
+            fecha_emision = datetime.strptime(d["detFchDoc"], FMT_DOC).date()
+
+            # Recepción (puede venir con hora; si no parsea, intentamos sin hora)
+            fecha_recepcion = None
+            recep_raw = d.get("detFecRecepcion")
+            if recep_raw:
+                parsed = None
+                for fmt in (FMT_RECEP, FMT_DOC):
+                    try:
+                        parsed = datetime.strptime(recep_raw, fmt)
+                        break
+                    except ValueError:
+                        pass
+                    if parsed: 
+                        fecha_recepcion = parsed.date()
+            # Regla de negocio (ley 30 días):
+            # - Si hay fecha de recepción => vencimiento_original = recepción + 30
+            # - Si no hay recepción => vencimiento_original = emisión + 30
+            base_para_venc = fecha_recepcion or fecha_emision
+            fecha_vencimiento_original = base_para_venc + timedelta(days=30)
+
+            # Inicialmente, el vencimiento vigente es igual al original
+            fecha_vencimiento = fecha_vencimiento_original
+
             factura = FacturaDB(
                 rut_emisor=rut_emisor,
                 rut_receptor=rut_receptor,
-                tipo_dte=str(d["detTipoDoc"]),
+                tipo_dte=str(d.get("detTipoDoc", "")),
                 folio=folio,
                 monto=int(d["detMntTotal"]),
                 razon_social_emisor=proveedor.nombre,
                 razon_social_receptor=d.get("detRznSoc", "Desconocido"),
-                fecha_emision=datetime.strptime(d["detFchDoc"], "%d/%m/%Y").date(),
-                fecha_vencimiento=datetime.strptime(d["detFecRecepcion"], "%d/%m/%Y %H:%M:%S").date()
-                    if d.get("detFecRecepcion") else datetime.strptime(d["detFchDoc"], "%d/%m/%Y").date(),
-                fecha_vencimiento_original=datetime.strptime(d["detFchDoc"], "%d/%m/%Y").date(),
+
+                fecha_emision=fecha_emision,
+                fecha_vencimiento=fecha_vencimiento,
+                fecha_vencimiento_original=fecha_vencimiento_original,
+
                 estado_dte="Cargada",
                 confirming_solicitado=False,
                 origen_confirmacion="SII",
-                proveedor_id=rut_normalizado
+
+                # Guarda el ID del proveedor (⚠️ no el RUT)
+                proveedor_id=proveedor.id,
+
+                # Opcional: guarda campos del SII si los usas en otras vistas
+                detEventoReceptor=d.get("detEventoReceptor"),
+                detEventoReceptorLeyenda=d.get("detEventoReceptorLeyenda"),
+                dias_desde_emision=(date.today() - fecha_emision).days
             )
+
             db.add(factura)
             nuevas_facturas.append(factura)
-
+        
         except Exception as e:
             errores.append(f"Error en folio {d.get('detNroDoc', 'desconocido')}: {e}")
-            print(f"❗ Error en folio {d.get('detNroDoc')}: {e}")
+            print(f"! Error en folio {d.get('detNroDoc')}: {e}")
 
     db.commit()
 
-    facturas = db.query(FacturaDB).filter(FacturaDB.proveedor_id == rut_normalizado).all()
-
-    print(f"✅ Facturas nuevas agregadas: {len(nuevas_facturas)}")
-    print(f"📊 Total facturas en DB para este proveedor: {len(facturas)}")
-
-    return templates.TemplateResponse("facturas.html", {
-        "request": request,
-        "facturas": facturas,
-        "errores": errores or None,
-        "proveedor_nombre": proveedor.nombre,
-        "facturas_descartadas": facturas_descartadas if facturas_descartadas else None
-    })   
+    # Calcula cantidad de facturas nuevas para el mensaje
+    cant_nuevas = len(nuevas_facturas)
+    params = urlencode({"msg": f"Se importaron {cant_nuevas} factura(s) correctamente"})
+    
+    return RedirectResponse(
+        url=f"/proveedor/facturas?msg={params}",
+        status_code=303
+    )
 
 @router.get("/ofertas-folio/{folio}")
 def ver_ofertas_factura_por_folio(
@@ -590,7 +626,7 @@ def ver_ofertas_factura_por_folio(
 
     rut_normalizado = normalizar_rut(rut_prov)
 
-    # Buscar la factura por folio Y proveedor logeado
+    # 1) Buscar la factura por folio Y proveedor logeado (RUT completo, sin cortar DV)
     factura = (
         db.query(FacturaDB)
         .filter(FacturaDB.folio == folio, FacturaDB.rut_emisor == rut_normalizado[:-1])  
@@ -600,9 +636,11 @@ def ver_ofertas_factura_por_folio(
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
+    # 2) Permitir ver ofertas si está "Confirming solicitado" o "Confirming adjudicado"
     if factura.estado_dte != "Confirming solicitado":
         raise HTTPException(status_code=400, detail="La factura no está habilitada para ver ofertas")
 
+    # 3) Traer ofertas + financiador + fondo
     ofertas = (
         db.query(OfertaFinanciamiento)
           .options(
@@ -614,11 +652,38 @@ def ver_ofertas_factura_por_folio(
           .all()
     )
 
+    # 4) Recalcular métricas conforme al vencimiento VIGENTE (pagador manda)
+    hoy = date.today()
+    dias_vigentes = 0
+    if factura.fecha_vencimiento:
+        dias_vigentes = max((factura.fecha_vencimiento - hoy).days, 0)
+
+    for o in ofertas:
+        tasa_total_mensual = (o.tasa_interes or 0) + (o.financiador.costo_fondos_mensual or 0)
+        tasa_diaria = tasa_total_mensual / 30.0
+
+        monto = factura.monto or 0
+        comision = o.comision_flat or 0
+        descuento = monto * tasa_diaria * dias_vigentes
+        precio_cesion_calc = int(round(monto - descuento - comision))
+
+        # Campos "transitorios" para que el template los use
+        o._dias_vigentes = dias_vigentes
+        o._tasa_total_mensual = tasa_total_mensual
+        o._precio_cesion_calc = precio_cesion_calc
+
+    # 5) Flag para deshabilitar botón si ya está adjudicada
+    bloqueado = (factura.estado_dte == "Confirming adjudicado")
+
     return templates.TemplateResponse(
         "ofertas_proveedor.html",
         {
             "request": request,
             "factura": factura,
-            "ofertas": ofertas
+            "ofertas": ofertas,
+            "bloqueado": bloqueado,
+            "hoy": hoy,
         }
     )
+    
+    
