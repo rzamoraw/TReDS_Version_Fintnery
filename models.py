@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
-from sqlalchemy import Date, Boolean
+from sqlalchemy import Date, Boolean, DateTime, JSON
 from sqlalchemy import cast
 from sqlalchemy.orm import foreign
 
@@ -114,6 +114,11 @@ class FacturaDB(Base):
     dias_desde_emision = Column(Integer, nullable=True)
     detEventoReceptor = Column(String, nullable=True)
     detEventoReceptorLeyenda = Column(String, nullable=True)
+
+    # NUEVO (para métricas de comportamiento del pagador):
+    estado_confirmacion = Column(String, default="Pendiente")   # Pendiente | Confirmada | Rechazada
+    fecha_confirmacion = Column(DateTime, nullable=True)
+    fecha_pago_real = Column(Date, nullable=True)               # si manejas pago real
     
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
     proveedor = relationship("Proveedor", back_populates="facturas")
@@ -145,5 +150,25 @@ class OfertaFinanciamiento(Base):
 
     factura = relationship("FacturaDB", back_populates="ofertas")
     financiador = relationship("Financiador", back_populates="ofertas")    
+
+class PagadorProfile(Base):
+    __tablename__ = "pagador_profiles"
+    rut = Column(String, primary_key=True)  # RUT normalizado, mismo que en tu sistema
+    razon_social = Column(String)
+    nombre_fantasia = Column(String, nullable=True)
+    sector_ciiu = Column(String, nullable=True)
+    email_tesoreria = Column(String, nullable=True)
+    telefono = Column(String, nullable=True)
+    sitio_web = Column(String, nullable=True)
+    esg_json = Column(JSON, default={})     # indicadores básicos si no quieres tablas separadas
+
+class EsgCertificacion(Base):
+    __tablename__ = "esg_certificaciones"
+    id = Column(Integer, primary_key=True)
+    rut = Column(String, index=True)           # RUT del pagador
+    tipo = Column(String)                      # ISO 9001, ISO 14001, ISO 27001, B-Corp, etc.
+    emisor = Column(String, nullable=True)     # entidad certificadora
+    valido_hasta = Column(Date, nullable=True)
+    enlace = Column(String, nullable=True)    
                            
                               

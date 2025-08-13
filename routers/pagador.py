@@ -1,21 +1,25 @@
 # routers/pagador.py
-from fastapi import APIRouter, Request, Form, Depends, File, UploadFile
+from fastapi import APIRouter, Request, Form, Depends, File, UploadFile, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, extract, case
 from passlib.context import CryptContext
 
-from database import SessionLocal
-from models import Pagador, FacturaDB, Financiador, Fondo
+from database import SessionLocal, get_db
+from models import Pagador, FacturaDB, Financiador, Fondo, PagadorProfile, EsgCertificacion, OfertaFinanciamiento
 from datetime import datetime, timedelta, date
 from rut_utils import normalizar_rut
+from services.pagador_360 import kpis_pagador
+from services.connectors.mercado_publico import (fetch_proveedor_por_rut, fetch_ordenes_de_compra_por_rut, fetch_adjudicaciones_por_rut, resumen_mercado_publico,)
+from services.connectors.esg_certificaciones import fetch_esg_certificaciones_por_rut
+
 import json
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 templates_middle = Jinja2Templates(directory="templates/middle")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 
 # ───────────── DB Dependency ─────────────
@@ -437,3 +441,122 @@ async def importar_facturas_pagador(
 def redireccion_despues_de_refresh():
     return RedirectResponse(url="/pagador/facturas", status_code=303)
 
+@router.get("/360/{rut}")
+async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(get_db)):
+    rut_norm = normalizar_rut(rut)
+    datos = kpis_pagador(db, rut_norm)
+
+    # Series para Chart.js
+    tmc_labels   = [p["periodo"] for p in datos["series"]["tmc_por_mes"]]
+    tmc_data     = [p["tmc"]     for p in datos["series"]["tmc_por_mes"]]
+    monto_labels = [p["periodo"] for p in datos["series"]["montos_por_mes"]]
+    monto_data   = [p["monto"]   for p in datos["series"]["montos_por_mes"]]
+
+    # Facturas recientes
+    recientes = (db.query(FacturaDB)
+                   .filter(FacturaDB.rut_receptor == rut_norm)
+                   .order_by(FacturaDB.fecha_emision.desc())
+                   .limit(10).all())
+
+    ids = [f.id for f in recientes]
+    if ids:
+        adj_ids = {
+            r[0] for r in db.query(OfertaFinanciamiento.factura_id)
+                            .filter(
+                                OfertaFinanciamiento.factura_id.in_(ids),
+                                func.lower(OfertaFinanciamiento.estado).like("adjudic%")
+                            ).all()
+        }
+    else:
+        adj_ids = set()
+
+    for f in recientes:
+        if f.financiador_adjudicado is not None or f.id in adj_ids:
+            f.estado_vista = "Adjudicada"
+        elif f.confirming_solicitado:
+            f.estado_vista = "Confirming solicitado"
+        elif (f.estado_confirmacion or "").lower() == "rechazada":
+            f.estado_vista = "Rechazada"
+        elif (f.estado_confirmacion or "").lower() in {"confirmada"}:
+            f.estado_vista = "Confirmada"
+        else:
+            f.estado_vista = "Pendiente"
+
+    # 🔌 Mercado Público
+    mp = await fetch_proveedor_por_rut(rut_norm)
+    mp_oc   = await fetch_ordenes_de_compra_por_rut(rut_norm, limit=10)
+    mp_adj  = await fetch_adjudicaciones_por_rut(rut_norm, limit=10)
+
+    # ----- ESG desde API + fusión con BD -----
+    # 1) Certificaciones que ya obtienes de BD (si las tienes en `certs` o `datos["esg"]["certificaciones"]`)
+    certs_db = datos["esg"]["certificaciones"]  # ORM objects
+
+    # 2) Llamada a la API ESG
+    esg_api = await fetch_esg_certificaciones_por_rut(rut_norm, force=False) or {}
+    api_certs = esg_api.get("certificaciones", [])  # lista de dicts
+
+    # 3) Normaliza ORM -> dict para mezclar con API sin romper el template
+    certs_db_norm = [
+        {
+            "tipo": c.tipo,
+            "emisor": c.emisor,
+            "valido_hasta": getattr(c, "valido_hasta", None),
+            "enlace": c.enlace,
+            "fuente": "BD"
+        }
+        for c in certs_db
+    ]
+
+    # 4) Marca fuente API
+    api_certs_norm = [
+        {
+            "tipo": c.get("tipo"),
+            "emisor": c.get("emisor"),
+            "valido_hasta": c.get("valido_hasta"),
+            "enlace": c.get("enlace"),
+            "fuente": "API"
+        }
+        for c in api_certs
+    ]
+
+    # 5) Fusiona y (opcional) deduplica por (tipo, emisor)
+    seen = set()
+    certs_merged = []
+    for item in certs_db_norm + api_certs_norm:
+        key = (item.get("tipo"), item.get("emisor"))
+        if key in seen:
+            continue
+    seen.add(key)
+    certs_merged.append(item)
+
+    context = {
+        "request": request,
+        "rut": rut_norm,
+        "perfil": datos["esg"]["perfil"] or PagadorProfile(rut=rut_norm, razon_social="(Sin registro)"),
+        "kpis": datos,
+        "certs": certs_merged,
+        "esg_api": esg_api,
+        "recientes": recientes,
+        "tmc_labels_json":   json.dumps(tmc_labels, ensure_ascii=False),
+        "tmc_data_json":     json.dumps(tmc_data, ensure_ascii=False),
+        "monto_labels_json": json.dumps(monto_labels, ensure_ascii=False),
+        "monto_data_json":   json.dumps(monto_data, ensure_ascii=False),
+        "mp": mp,
+        "mp_oc": mp_oc,
+        "mp_adj": mp_adj,
+    }
+    return templates.TemplateResponse("pagador_360.html", context)
+
+@router.get("/ext/mp/ordenes/{rut}")
+async def mp_preview(rut: str):
+    return await resumen_mercado_publico
+
+@router.get("/ext/mp/adjudicaciones/{rut}")
+async def mp_adj_preview(
+    rut: str,
+    desde: str | None = Query(None),
+    hasta: str | None = Query(None),
+    limit: int = Query(20),
+    force: int = Query(0),
+):
+    return await fetch_adjudicaciones_por_rut(rut, desde=desde, hasta=hasta, limit=limit, force=bool(force))
