@@ -18,6 +18,7 @@ from routers.admin import router as admin_router
 from routers.configuracion import router as configuracion_router
 from routers.middle_office import router as middle_office_router
 from routers.pagador_esgcert import router as pagador_esg_router
+from routers import esg
 
 # 🔐 Cargar variables de entorno
 load_dotenv()
@@ -42,7 +43,7 @@ app.include_router(marketplace_router, prefix="/marketplace")
 app.include_router(configuracion_router, prefix="/configuracion")
 app.include_router(admin_router, prefix="/admin")
 app.include_router(middle_office_router)
-app.include_router(pagador_esg_router)
+app.include_router(esg.router)
 
 # ⚠️ Manejo de errores 404 (opcional y no invasivo)
 @app.exception_handler(404)

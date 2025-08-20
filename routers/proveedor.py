@@ -10,6 +10,7 @@ import os, zipfile, xml.etree.ElementTree as ET
 from fastapi import HTTPException
 from rut_utils import normalizar_rut  # Asegúrate de tener esto al inicio
 from urllib.parse import urlencode
+from sqlalchemy import func, or_, and_
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -124,50 +125,58 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db), msg:
     print(">> RUT normalizado del proveedor logeado:", rut_normalizado)
     print(">> PROVEEDOR LOGEADO:", nombre, rut_normalizado)
 
-    # Buscar todas las facturas en que el proveedor es emisor (aunque las haya subido el pagador)
     facturas = (
-        db.query(FacturaDB)
-        .options(
-            joinedload(FacturaDB.ofertas)
-            .joinedload(OfertaFinanciamiento.financiador)
-        )
-        .filter(FacturaDB.rut_emisor.in_([rut_normalizado, rut_normalizado.replace("-", "")]))
-        .all()
+    db.query(FacturaDB)
+      .options(joinedload(FacturaDB.ofertas).joinedload(OfertaFinanciamiento.financiador))
+      .filter(FacturaDB.rut_emisor.in_([rut_normalizado, rut_normalizado.replace("-", "")]))
+      .all()
     )
+
     print(">> Facturas encontradas para el RUT:", rut_normalizado)
     for f in facturas:
         print(f"   - Folio: {f.folio}, Estado: {f.estado_dte or 'None'}")
-    
-    facturas_cargadas = [f for f in facturas if f.estado_dte == "Cargada"]
 
+    # Conjuntos de estados (ojo a los textos exactos que usas en tu app)
+    RECH_DTE = {
+        "Rechazada por pagador",
+        "Rechazada por proveedor",
+        "Vencimiento rechazado por proveedor",
+    }
+    CONFIRMADAS_DTE = {
+        "Confirmada por pagador",
+    }
+    CONFIRMING_DTE = {
+        "Confirming solicitado",
+        "Enviado a confirming",
+    }
+    ADJ_DTE = {"Confirming adjudicado"}
+
+    # Pestañas
+    facturas_cargadas = [f for f in facturas if (f.estado_dte or "").strip() == "Cargada"]
+
+    # Pendientes: SOLO las que todavía esperan acción del pagador (sin rechazadas)
     facturas_pendientes = [
-        f for f in facturas if f.estado_dte in [
-            "Confirmación solicitada al pagador",
-            "Rechazada por pagador"
-        ]
-    ]
-    print("▶ FACTURAS CONFIRMADAS:")
-    facturas_confirmadas = [
-        f for f in facturas if f.estado_dte in [
-            "Confirmada por pagador",
-        ]
-    ]
-    for f in facturas_confirmadas:
-        print(f"   - Folio: {f.folio}, Estado: {f.estado_dte}")
-
-    facturas_confirming = [
-    f for f in facturas 
-    if f.estado_dte in ["Confirming solicitado", "Enviado a confirming"]
+        f for f in facturas 
+        if (f.estado_dte or "").strip() in {"Confirmación solicitada al pagador"}
     ]
 
-    # NUEVO: adjudicadas
-    facturas_adjudicadas = [
-    f for f in facturas
-    if f.estado_dte == "Confirming adjudicado"
-]
+    # Confirmadas por pagador
+    facturas_confirmadas = [f for f in facturas if (f.estado_dte or "").strip() in CONFIRMADAS_DTE]
+
+    # Confirming solicitado / enviado
+    facturas_confirming = [f for f in facturas if (f.estado_dte or "").strip() in CONFIRMING_DTE]
+
+    # Adjudicadas
+    facturas_adjudicadas = [f for f in facturas if (f.estado_dte or "").strip() in ADJ_DTE]
+
+    # NUEVA pestaña: Rechazadas
+    facturas_rechazadas = [f for f in facturas if (f.estado_dte or "").strip() in RECH_DTE]
 
     ofertas_por_factura = {f.folio: f.ofertas for f in facturas}
-    print(f">> Total facturas confirmadas visibles en frontend: {len(facturas_confirmadas)}")
+
+    print(f">> Totales -> Cargadas={len(facturas_cargadas)} Pendientes={len(facturas_pendientes)} "
+          f"Confirmadas={len(facturas_confirmadas)} Confirming={len(facturas_confirming)} "
+          f"Adjudicadas={len(facturas_adjudicadas)} Rechazadas={len(facturas_rechazadas)}")
 
     
     
@@ -182,13 +191,15 @@ def ver_facturas_proveedor(request: Request, db: Session = Depends(get_db), msg:
             "facturas_confirmadas": facturas_confirmadas,
             "facturas_confirming": facturas_confirming,
             "facturas_adjudicadas": facturas_adjudicadas,
+            "facturas_rechazadas": facturas_rechazadas,
             "ofertas_por_factura": ofertas_por_factura,
             "proveedor_nombre": nombre,
             "total_cargadas": len(facturas_cargadas),
             "total_pendientes": len(facturas_pendientes),
             "total_confirmadas": len(facturas_confirmadas),
             "total_confirming": len(facturas_confirming),
-            "total_adjudicadas": len(facturas_adjudicadas)
+            "total_adjudicadas": len(facturas_adjudicadas),
+            "total_rechazadas": len(facturas_rechazadas),
         }
     )
 

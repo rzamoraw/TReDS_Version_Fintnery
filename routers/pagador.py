@@ -11,24 +11,34 @@ from models import Pagador, FacturaDB, Financiador, Fondo, PagadorProfile, EsgCe
 from datetime import datetime, timedelta, date
 from rut_utils import normalizar_rut
 from services.pagador_360 import kpis_pagador
-from services.connectors.mercado_publico import (fetch_proveedor_por_rut, fetch_ordenes_de_compra_por_rut, fetch_adjudicaciones_por_rut, resumen_mercado_publico,)
-from services.connectors.esg_certificaciones import fetch_esg_certificaciones_por_rut
+from services.connectors.mercado_publico import fetch_mp_minimo, build_mp_context
+from services.connectors.retc import fetch_establecimientos_por_razon_social
 
 import json
+import asyncio
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 templates_middle = Jinja2Templates(directory="templates/middle")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# ESG: importar si existe; si no, dejar stub que retorna {}
+try:
+    from services.connectors.esg import fetch_esg_certificaciones_por_rut
+except Exception:
+    async def fetch_esg_certificaciones_por_rut(rut: str, *, force: bool = False):
+        return {}
 
-# ───────────── DB Dependency ─────────────
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def _rango_12m_hasta_hoy():
+    """
+    Devuelve (agno1, nroMes1, agno2, nroMes2) cubriendo 12 meses hasta el mes actual.
+    """
+    hoy = date.today()
+    agno2, nroMes2 = hoy.year, hoy.month
+    m_total = (agno2 * 12 + nroMes2) - 11
+    agno1 = (m_total - 1) // 12
+    nroMes1 = (m_total - 1) % 12 + 1
+    return agno1, nroMes1, agno2, nroMes2
 
 
 # ───────────── Registro / Login ─────────────
@@ -453,89 +463,143 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
     monto_data   = [p["monto"]   for p in datos["series"]["montos_por_mes"]]
 
     # Facturas recientes
-    recientes = (db.query(FacturaDB)
-                   .filter(FacturaDB.rut_receptor == rut_norm)
-                   .order_by(FacturaDB.fecha_emision.desc())
-                   .limit(10).all())
+    recientes = (
+        db.query(FacturaDB)
+          .filter(FacturaDB.rut_receptor == rut_norm)
+          .order_by(FacturaDB.fecha_emision.desc())
+          .limit(10)
+          .all()
+    )
 
     ids = [f.id for f in recientes]
     if ids:
+        # OJO: asegúrate de tener from sqlalchemy import func
         adj_ids = {
             r[0] for r in db.query(OfertaFinanciamiento.factura_id)
                             .filter(
                                 OfertaFinanciamiento.factura_id.in_(ids),
-                                func.lower(OfertaFinanciamiento.estado).like("adjudic%")
+                                func.lower(OfertaFinanciamiento.estado).like("adjudic%")  # <- si esto te da error, cambia a func.lower(OfertaFinanciamiento.estado)
                             ).all()
         }
     else:
         adj_ids = set()
 
+    def _lower(s: str | None) -> str:
+        return (s or "").strip().lower()
+
     for f in recientes:
-        if f.financiador_adjudicado is not None or f.id in adj_ids:
+        dte  = _lower(f.estado_dte)
+        conf = _lower(f.estado_confirmacion)
+
+        if (f.financiador_adjudicado is not None) or (f.id in adj_ids) or (dte == "confirming adjudicado"):
             f.estado_vista = "Adjudicada"
-        elif f.confirming_solicitado:
-            f.estado_vista = "Confirming solicitado"
-        elif (f.estado_confirmacion or "").lower() == "rechazada":
+        elif dte in {"rechazada por pagador", "rechazada"} or conf in {"rechazada", "rechazada por pagador"}:
             f.estado_vista = "Rechazada"
-        elif (f.estado_confirmacion or "").lower() in {"confirmada"}:
+        elif dte.startswith("confirmada") or conf.startswith("confirmada") or (f.fecha_confirmacion is not None):
             f.estado_vista = "Confirmada"
+        elif bool(getattr(f, "confirming_solicitado", False)) or dte in {"confirming solicitado", "enviado a confirming"}:
+            f.estado_vista = "Confirming solicitado"
         else:
             f.estado_vista = "Pendiente"
 
-    # 🔌 Mercado Público
-    mp = await fetch_proveedor_por_rut(rut_norm)
-    mp_oc   = await fetch_ordenes_de_compra_por_rut(rut_norm, limit=10)
-    mp_adj  = await fetch_adjudicaciones_por_rut(rut_norm, limit=10)
+    # ---------- Mercado Público (core) ----------
+    from services.connectors.mercado_publico import fetch_mp_minimo, build_mp_context
 
-    # ----- ESG desde API + fusión con BD -----
-    # 1) Certificaciones que ya obtienes de BD (si las tienes en `certs` o `datos["esg"]["certificaciones"]`)
-    certs_db = datos["esg"]["certificaciones"]  # ORM objects
+    try:
+        mp = await fetch_mp_minimo(rut_norm)
+    except Exception as e:
+        print(f"[MP360] fetch_mp_minimo error: {e}")
+        # defaults seguros para que el template nunca reviente
+        mp = {
+            "ok": False, "sellos": [], "ventas_12m": 0, "rango": None,
+            "registrado": False, "habilitado": None,
+            "score": None, "score_promedio": None,
+            "razon_social": None, "nombre_fantasia": None,
+            "oc_24m": 0, "entCode": None
+        }
 
-    # 2) Llamada a la API ESG
-    esg_api = await fetch_esg_certificaciones_por_rut(rut_norm, force=False) or {}
-    api_certs = esg_api.get("certificaciones", [])  # lista de dicts
+    # SIEMPRE construir los derivados del bloque MP desde el helper
+    ctx_mp = build_mp_context(mp)
+    mp_oc    = ctx_mp["mp_oc"]
+    mp_adj   = ctx_mp["mp_adj"]
+    mp_ventas = ctx_mp["mp_ventas"]
 
-    # 3) Normaliza ORM -> dict para mezclar con API sin romper el template
-    certs_db_norm = [
+    ctx_mp    = build_mp_context(mp)
+    mp_oc     = ctx_mp["mp_oc"]
+    mp_adj    = ctx_mp["mp_adj"]
+    mp_ventas = ctx_mp["mp_ventas"]
+
+    # ---------------------------
+    # Nombre a mostrar (razón social para RETC)
+    # ---------------------------
+    # REMOVE: dependencias de "esg_api / autollenado"
+    # ADD: construir display_name solo con BD/Facturas/MP
+    display_name = None
+
+    # 1) si tienes perfil en BD, úsalo
+    perfil_bd = datos["esg"].get("perfil") if "esg" in datos else None
+    if perfil_bd:
+        display_name = (
+            getattr(perfil_bd, "razon_social", None)
+            or getattr(perfil_bd, "nombre_fantasia", None)
+        )
+    
+    # 2) si no, usa razón social que viene en las facturas recientes
+    if not display_name:
+        for f in recientes:
+            if getattr(f, "razon_social_receptor", None):
+                display_name = f.razon_social_receptor
+                break
+
+    # 3) si no, usa MP mínimo
+    if not display_name and mp:
+        display_name = mp.get("razon_social") or mp.get("nombre_fantasia")
+
+    if not display_name:
+        display_name = "(Sin registro)"
+
+    perfil_display = perfil_bd or PagadorProfile(rut=rut_norm, razon_social=display_name)
+
+    # ---------- RETC (RECURSO OFICIAL: Establecimientos) ----------
+    # ADD: consultar RETC por razón social exacta (filters={"Razón social": ...})
+    esg_retc = {}
+    if display_name and display_name != "(Sin registro)":
+        try:
+            esg_retc = await fetch_establecimientos_por_razon_social(display_name, limit=50)
+            # asegura que cada match lleve el rut del contexto
+            if esg_retc and esg_retc.get("matches"):
+                for it in esg_retc["matches"]:
+                    it.setdefault("rut", rut_norm)
+        except Exception as e:
+            print(f"[RETC] error: {e}")
+            esg_retc = {"ok": False, "matches": [], "error": str(e)}
+    
+    
+    
+    # ---------- Certificaciones (solo BD, sin API externa) ----------
+    # Si ya no quieres mostrar nada de certificaciones, puedes dejar 'certs=[]'
+    
+    certs_db = datos["esg"].get("certificaciones") if "esg" in datos else []
+    certs_merged = [
         {
             "tipo": c.tipo,
             "emisor": c.emisor,
             "valido_hasta": getattr(c, "valido_hasta", None),
             "enlace": c.enlace,
-            "fuente": "BD"
+            "fuente": "BD",
         }
-        for c in certs_db
+        for c in (certs_db or [])
     ]
-
-    # 4) Marca fuente API
-    api_certs_norm = [
-        {
-            "tipo": c.get("tipo"),
-            "emisor": c.get("emisor"),
-            "valido_hasta": c.get("valido_hasta"),
-            "enlace": c.get("enlace"),
-            "fuente": "API"
-        }
-        for c in api_certs
-    ]
-
-    # 5) Fusiona y (opcional) deduplica por (tipo, emisor)
-    seen = set()
-    certs_merged = []
-    for item in certs_db_norm + api_certs_norm:
-        key = (item.get("tipo"), item.get("emisor"))
-        if key in seen:
-            continue
-    seen.add(key)
-    certs_merged.append(item)
+    print(f"[RETC] rut={rut_norm} razon_social='{display_name}' matches={ (esg_retc.get('total') if esg_retc else 0) }")
 
     context = {
         "request": request,
         "rut": rut_norm,
-        "perfil": datos["esg"]["perfil"] or PagadorProfile(rut=rut_norm, razon_social="(Sin registro)"),
+        "perfil": perfil_display,
         "kpis": datos,
-        "certs": certs_merged,
-        "esg_api": esg_api,
+        "certs": certs_merged,     # ← deja solo BD; si no quieres mostrar, pásalo como []
+        "esg_api": {},             # ← NO usamos más “api esg”; template seguirá funcionando
+        "esg_retc": esg_retc,      # ← NUEVO: resultados de RETC (para la card)
         "recientes": recientes,
         "tmc_labels_json":   json.dumps(tmc_labels, ensure_ascii=False),
         "tmc_data_json":     json.dumps(tmc_data, ensure_ascii=False),
@@ -544,19 +608,6 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
         "mp": mp,
         "mp_oc": mp_oc,
         "mp_adj": mp_adj,
+        "mp_ventas": mp_ventas,
     }
     return templates.TemplateResponse("pagador_360.html", context)
-
-@router.get("/ext/mp/ordenes/{rut}")
-async def mp_preview(rut: str):
-    return await resumen_mercado_publico
-
-@router.get("/ext/mp/adjudicaciones/{rut}")
-async def mp_adj_preview(
-    rut: str,
-    desde: str | None = Query(None),
-    hasta: str | None = Query(None),
-    limit: int = Query(20),
-    force: int = Query(0),
-):
-    return await fetch_adjudicaciones_por_rut(rut, desde=desde, hasta=hasta, limit=limit, force=bool(force))

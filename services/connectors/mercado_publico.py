@@ -1,340 +1,316 @@
 # services/connectors/mercado_publico.py
-import os, asyncio, random, time
-from typing import Dict, Any
+import os
 import httpx
 from dotenv import load_dotenv
 
-BASE_URL = "https://api.mercadopublico.cl/servicios/v1/Publico"
+print("[MP] modulo cargado desde:", __file__)
+load_dotenv(override=True)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Cache (en memoria del proceso)
-# ──────────────────────────────────────────────────────────────────────────────
-try:
-    _CACHE  # type: ignore[name-defined]
-except NameError:
-    _CACHE: dict[str, tuple[float, dict]] = {}
+# Trae emisores de token (no toco tu provider)
+from services.connectors.token_provider import get_prd_token, get_da_token
 
-# TTLs
-TTL_SECONDS     = 60 * 60 * 12   # 12 h (genérico)
-TTL_PROV_SEC    = 60 * 60 * 6    # 6 h (proveedor)
-TTL_OC_SECONDS  = 60 * 30        # 30 min (órdenes)
-TTL_ADJ_SECONDS = 60 * 60 * 6    # 6 h (adjudicaciones)
+BASE_PRD = "https://servicios-prd.mercadopublico.cl"
+BASE_DA  = "https://mserv-datos-abiertos.chilecompra.cl"
 
-def _cache_get(key: str) -> dict | None:
-    t = _CACHE.get(key)
-    if not t:
-        return None
-    expires_at, payload = t
-    if time.time() >= expires_at:
-        _CACHE.pop(key, None)
-        return None
-    return payload
 
-def _cache_set(key: str, payload: dict, ttl: int = TTL_SECONDS) -> None:
-    _CACHE[key] = (time.time() + ttl, payload)
+def _rut_for_api(r: str) -> str:
+    """Normaliza RUT para endpoints MP: sin puntos y con guion final."""
+    s = (r or "").replace(".", "").strip()
+    if "-" not in s and len(s) > 1:
+        s = f"{s[:-1]}-{s[-1]}"
+    return s
 
-def _cache_del(key: str) -> None:
-    _CACHE.pop(key, None)
 
-def _cache_key(kind: str, **params) -> str:
-    items = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
-    return f"mp:{kind}:{items}"
-
-def _prov_key(rut_fmt: str) -> str:
-    return f"mp:prov:{rut_fmt}"
-
-# Mapeo rápido RUT → CodigoEmpresa (evita segunda ida a la API)
-_RUT_TO_EMPRESA: dict[str, str] = {}
-
-def _cache_empresa_put(rut_fmt: str, codigo: str | None):
-    if codigo:
-        _RUT_TO_EMPRESA[rut_fmt] = codigo
-
-def _cache_empresa_get(rut_fmt: str) -> str | None:
-    return _RUT_TO_EMPRESA.get(rut_fmt)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Ticket y helpers HTTP
-# ──────────────────────────────────────────────────────────────────────────────
-def _get_ticket() -> str:
-    load_dotenv(override=True)  # recarga .env por si cambió en caliente
-    return os.getenv("MP_TICKET", "")
-
-def _rut_para_mp(rut: str) -> str:
+# =======================
+#  Headers / HTTP helpers
+# =======================
+async def _headers_prd() -> dict:
     """
-    Devuelve el RUT con puntos y guión (##.###.###-d), como lo espera MP.
-    Si ya viene formateado (con puntos y guión), se respeta.
+    Usa BEARER_TOKEN_PRD del entorno si existe; si no, intenta get_prd_token().
+    No levanta excepción; loggea y retorna Authorization vacío si no hay token.
     """
-    if "-" in rut and "." in rut:
-        return rut
-    s = "".join(ch for ch in rut if ch.isalnum())
-    if not s:
-        return rut
-    cuerpo, dv = s[:-1], s[-1]
-    grupos: list[str] = []
-    while cuerpo:
-        grupos.insert(0, cuerpo[-3:])
-        cuerpo = cuerpo[:-3]
-    return ".".join(grupos) + "-" + dv.lower()
+    tok_env = (os.getenv("BEARER_TOKEN_PRD") or "").strip()
+    used = "ENV"
+    tok = tok_env
+    if not tok:
+        try:
+            tok = await get_prd_token()
+            used = "AUTO" if tok else "NONE"
+        except Exception as e:
+            print(f"[MP] get_prd_token() error: {e}")
+            tok = ""
 
-async def _safe_get(url: str, params: Dict[str, Any], max_retries: int = 4) -> Dict[str, Any]:
+    ok = bool(tok)
+    print(f"[MP] PRD bearer? {ok} src={used} len={len(tok) if ok else 0}")
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Pagador360",
+    }
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    return headers
+
+
+async def _headers_da() -> dict:
     """
-    Envoltura robusta para GET:
-      - Inserta ticket.
-      - Reintenta 5xx y Codigo=10500 con backoff exponencial + jitter.
-      - Normaliza "no hay resultados" (Codigo=10200) como 404 controlado.
+    Datos Abiertos: intenta token (si tienes client_credentials). Si no, va sin Authorization.
     """
-    ticket = _get_ticket()
-    if not ticket:
-        return {"ok": False, "status": None, "payload": {"error": "MP_TICKET ausente"}}
+    tok = ""
+    try:
+        tok = await get_da_token() or ""
+    except Exception as e:
+        print(f"[MP] get_da_token() error: {e}")
+    print(f"[MP] DA  bearer? {bool(tok)} len={len(tok) if tok else 0}")
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Pagador360",
+    }
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    return headers
 
-    params = dict(params or {})
-    params["ticket"] = ticket
-    headers = {"Accept": "application/json", "User-Agent": "Fintnery/TReDS"}
 
-    delay = 0.8
-    async with httpx.AsyncClient(http2=True, timeout=30.0) as client:
-        for intento in range(max_retries + 1):
-            resp = await client.get(url, params=params, headers=headers)
-            try:
-                payload = resp.json()
-            except Exception:
-                payload = {"raw_text": resp.text}
+async def _get_json_prd(path: str):
+    """GET a PRD; nunca levanta excepción. Devuelve dict suave con 'ok' en errores."""
+    url = BASE_PRD + path
+    headers = await _headers_prd()
 
-            # "No hay resultados"
-            if isinstance(payload, dict) and payload.get("Codigo") == 10200:
-                return {"ok": True, "status": 404, "payload": payload}
+    # Si no hay bearer, evita el 401 inútil
+    if not headers.get("Authorization"):
+        print(f"[MP] SKIP {url} -> missing bearer")
+        return {"ok": False, "error": "missing_bearer", "payload": None}
 
-            # "Peticiones simultáneas"
-            if isinstance(payload, dict) and payload.get("Codigo") == 10500:
-                if intento < max_retries:
-                    await asyncio.sleep(delay + random.uniform(0, 0.5))
-                    delay *= 1.8
-                    continue
-                return {"ok": False, "status": resp.status_code, "payload": payload}
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(url, headers=headers)
+        body_preview = (r.text or "")[:180].replace("\n", " ")
+        print(f"[MP] GET {url} -> {r.status_code} body[:180]='{body_preview}'")
+        if r.status_code >= 400:
+            return {"ok": False, "status": r.status_code, "raw": r.text, "payload": None}
+        try:
+            return r.json()
+        except Exception:
+            return {"ok": False, "status": r.status_code, "raw": r.text, "payload": None}
 
-            if resp.is_success:
-                return {"ok": True, "status": resp.status_code, "payload": payload}
 
-            if 500 <= resp.status_code < 600 and intento < max_retries:
-                await asyncio.sleep(delay + random.uniform(0, 0.5))
-                delay *= 1.8
-                continue
+async def _get_json_da(path: str):
+    """GET a Datos Abiertos; intenta reintentar en 401 si renuevas token dentro de get_da_token()."""
+    url = BASE_DA + path
+    async with httpx.AsyncClient(timeout=30) as client:
+        headers = await _headers_da()
+        r = await client.get(url, headers=headers)
+        body_preview = (r.text or "")[:180].replace("\n", " ")
+        print(f"[MP] GET {url} -> {r.status_code} body[:180]='{body_preview}'")
 
-            return {"ok": False, "status": resp.status_code, "payload": payload}
+        if r.status_code == 401:
+            print("[MP] 401 DA: renovando token y reintentando…")
+            headers = await _headers_da()
+            r = await client.get(url, headers=headers)
+            body_preview = (r.text or "")[:180].replace("\n", " ")
+            print(f"[MP] RETRY {url} -> {r.status_code} body[:180]='{body_preview}'")
 
-    return {"ok": False, "status": None, "payload": {"error": "sin respuesta"}}
+        if r.status_code >= 400:
+            return {"ok": False, "status": r.status_code, "raw": r.text}
+        try:
+            return r.json()
+        except Exception:
+            return {"ok": False, "status": r.status_code, "raw": r.text}
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Proveedor por RUT (con cache y force)
-# ──────────────────────────────────────────────────────────────────────────────
-async def fetch_proveedor_por_rut(rut: str, force: bool = False) -> Dict[str, Any]:
+
+# ============================
+#  Consolidadores para la vista
+# ============================
+async def fetch_mp_core(rut_norm: str) -> dict:
     """
-    Busca el proveedor por RUT en MP.
-    - rut: puede venir en cualquier formato; se normaliza al esperado por MP.
-    - force=True invalida el cache para este RUT.
+    Consolida datos esenciales de MP + Datos Abiertos para la Ficha 360.
+    Siempre retorna un dict con las llaves esperadas por el template.
     """
-    rut_fmt = _rut_para_mp(rut)
+    rut_api = _rut_for_api(rut_norm)
 
-    # 1) cache hit (solo si no forzamos)
-    if not force:
-        cached = _cache_get(rut_fmt)
-        if cached is not None:
-            return cached
-   
-    # 2) llamada a API
-    url = f"{BASE_URL}/Empresas/BuscarProveedor"
-    res = await _safe_get(url, {"rutempresaproveedor": rut_fmt})
+    # Defaults (nunca faltan claves)
+    sellos_list = []
+    ent_code = None
+    habilitado = None
+    score_promedio = None
+    oc_24m = 0
+    razon = None
+    fantasia = None
+    ventas_12m = 0
+    rango = None
 
-    if not res["ok"]:
-        out = {"encontrado": False, "rut_consultado": rut_fmt, "error": res["payload"]}
-        # guarda igual en cache para evitar golpear la API en error repetido
-        _cache_set(rut_fmt, out)
-        return out
+    # ---- SELL0S (PRD) ----
+    sellos_json = await _get_json_prd(f"/v1/sello/sellos-proveedor/{rut_api}")
+    if isinstance(sellos_json, dict) and (sellos_json.get("success") == "OK"):
+        sellos_list = ((sellos_json.get("payload") or {}).get("sellos") or []) or []
+        if sellos_list and isinstance(sellos_list[0], dict):
+            ent_code = sellos_list[0].get("entCode") or ent_code
 
-    p = res["payload"] if isinstance(res["payload"], dict) else {}
-    lista = p.get("listaEmpresas") or p.get("Listado") or p.get("listado") or []
+    # ---- ESTADO/HABIL + identidad (PRD) ----
+    estado_json = await _get_json_prd(f"/v3/proveedor/estado/{rut_api}/0")
+    if isinstance(estado_json, dict) and (estado_json.get("success") == "OK"):
+        p = estado_json.get("payload") or {}
+        hp = (p.get("habilidadProveedor") or "").strip().upper()
+        habilitado = True if hp == "HABIL" else False if hp else None
+        razon = p.get("razonSocial") or razon
+        fantasia = p.get("nombreFantasia") or fantasia
 
-    if isinstance(lista, list) and len(lista) > 0:
-        e = lista[0]
-        out = {
-            "encontrado": True,
-            "rut_consultado": rut_fmt,
-            "codigo_empresa": e.get("CodigoEmpresa"),
-            "nombre_empresa": e.get("NombreEmpresa") or e.get("RazonSocial"),
-            "raw": p,
+    # ---- SUMMARY (PRD): score y oc24 ----
+    sum_json = await _get_json_prd(f"/v1/proveedor/summaryficha/{rut_api}")
+    if isinstance(sum_json, dict) and (sum_json.get("success") == "OK"):
+        p = sum_json.get("payload") or {}
+        score_promedio = p.get("comportamientoContractual")  # 0..5
+        oc_24m = p.get("oc24meses") or 0
+
+    # ---- Datos Abiertos: ventas 12m ----
+    da_json = await _get_json_da(f"/v1/organismSupplier/get12MesesVentasProveedor/{rut_api}")
+    if isinstance(da_json, dict):
+        pr = da_json.get("payload") or {}
+        ventas_12m = int(pr.get("montoUltimos12Meses") or pr.get("montoTotal") or 0)
+        if pr.get("agno1") and pr.get("agno2"):
+            rango = {
+                "agno1": pr.get("agno1"),
+                "nroMes1": pr.get("nroMes1"),
+                "agno2": pr.get("agno2"),
+                "nroMes2": pr.get("nroMes2"),
+            }
+
+    res = {
+        "ok": True,                              # el consolidado no rompe aunque falte algo
+        "registrado": bool(sellos_list),
+        "habilitado": habilitado,               # None/True/False
+        "score": score_promedio,                # alias
+        "score_promedio": score_promedio,       # compat template
+        "ventas_12m": ventas_12m or 0,
+        "rango": rango,                         # dict o None
+        "sellos": sellos_list or [],
+        "razon_social": razon,
+        "nombre_fantasia": fantasia,
+        "oc_24m": oc_24m or 0,
+        "entCode": ent_code,
+    }
+
+    print(
+        f"[MP360] ok={res['ok']} hab={res['habilitado']} "
+        f"score={res['score_promedio']} ventas12m={res['ventas_12m']} "
+        f"sellos={len(res['sellos'])} entCode={res['entCode']}"
+    )
+    return res
+
+
+async def fetch_mp_ficha_basica(rut_norm: str) -> dict:
+    """
+    Variante que también intenta sacar razón social/nombre fantasía desde 'ficha/direccion'.
+    Retorna llaves con nombres ligeramente distintos para el rango de ventas (rango_ventas).
+    """
+    rut_api = _rut_for_api(rut_norm)
+
+    def _ok_dict(d):
+        return d if isinstance(d, dict) else {}
+
+    def _payload_ok(d):
+        d = _ok_dict(d)
+        return d.get("payload") or {}
+
+    # Identidad desde 'ficha/direccion'
+    ficha_json = await _get_json_prd(f"/v1/proveedor/ficha/direccion/{rut_api}/0")
+    razon_social = None
+    nombre_fantasia = None
+    habil_str = None
+    if isinstance(ficha_json, dict) and ficha_json.get("success") == "OK":
+        fp = ficha_json.get("payload") or {}
+        razon_social = fp.get("razonSocial")
+        nombre_fantasia = fp.get("nombreFantasia")
+        habil_str = fp.get("habilidadProveedor")
+
+    # Sellos
+    sellos_json = await _get_json_prd(f"/v1/sello/sellos-proveedor/{rut_api}")
+    sellos_payload = _payload_ok(sellos_json)
+    sellos_list = sellos_payload.get("sellos") or []
+
+    codigo_empresa = None
+    if sellos_list and isinstance(sellos_list[0], dict):
+        codigo_empresa = sellos_list[0].get("entCode")
+
+    # Estado/habilitación (otra fuente)
+    estado_json = await _get_json_prd(f"/v3/proveedor/estado/{rut_api}/0")
+    estado_payload = {}
+    habilitado = None
+    registrado = False
+    if isinstance(estado_json, dict) and estado_json.get("success") == "OK":
+        estado_payload = estado_json.get("payload") or {}
+        registrado = True
+        if isinstance(estado_payload, dict) and "habilitado" in estado_payload:
+            habilitado = estado_payload.get("habilitado")
+
+    # Score + oc24 + monto mp
+    sum_json = await _get_json_prd(f"/v1/proveedor/summaryficha/{rut_api}")
+    score_promedio = None
+    oc_24m = None
+    monto_mp = None
+    if isinstance(sum_json, dict) and sum_json.get("success") == "OK":
+        sp = sum_json.get("payload") or {}
+        score_promedio = sp.get("comportamientoContractual")
+        oc_24m = sp.get("oc24meses")
+        monto_mp = sp.get("montoMP")
+
+    # Ventas DA
+    v12_json = await _get_json_da(f"/v1/organismSupplier/get12MesesVentasProveedor/{rut_api}")
+    ventas_12m = 0
+    rango_ventas = {}
+    if isinstance(v12_json, dict):
+        p = v12_json.get("payload") or {}
+        monto = p.get("montoUltimos12Meses", p.get("montoTotal"))
+        ventas_12m = int((monto or 0) or 0)
+        rango_ventas = {
+            "agno1":   p.get("agno1"),
+            "nroMes1": p.get("nroMes1"),
+            "agno2":   p.get("agno2"),
+            "nroMes2": p.get("nroMes2"),
         }
-        _cache_set(rut_fmt, out)
-        return out
 
-    # Código “no hay resultados”
-    if p.get("Codigo") == 10200:
-        out = {"encontrado": False, "rut_consultado": rut_fmt, "raw": p}
-        _cache_set(rut_fmt, out)
-        return out
+    ok_flag = bool(sellos_list or (score_promedio is not None) or ventas_12m)
 
-    out = {"encontrado": False, "rut_consultado": rut_fmt, "raw": p}
-    _cache_set(rut_fmt, out)
-    return out
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers: CodigoEmpresa por RUT (usa fetch_proveedor_por_rut)
-# ──────────────────────────────────────────────────────────────────────────────
-async def _codigo_empresa_por_rut(rut: str, force: bool = False) -> str | None:
-    """
-    Devuelve CodigoEmpresa (string) consultando fetch_proveedor_por_rut si hace falta.
-    Respeta `force` para bypassear cache.
-    """
-    rut_fmt = _rut_para_mp(rut)
-    if not force:
-        cod = _cache_empresa_get(rut_fmt)
-        if cod:
-            return cod
-    info = await fetch_proveedor_por_rut(rut_fmt, force=force)
-    if info.get("encontrado") and info.get("codigo_empresa"):
-        _cache_empresa_put(rut_fmt, info["codigo_empresa"])
-        return info["codigo_empresa"]
-    return None
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Órdenes de compra por RUT proveedor
-# ──────────────────────────────────────────────────────────────────────────────
-async def fetch_ordenes_de_compra_por_rut(
-    rut: str,
-    desde: str | None = None,   # "YYYY-MM-DD"
-    hasta: str | None = None,   # "YYYY-MM-DD"
-    limit: int = 50,
-    force: bool = False,
-) -> dict:
-    """
-    Trae un listado (acotado) de Órdenes de Compra para un proveedor (por RUT).
-    Devuelve un resumen y hasta 'limit' ítems crudos de la API.
-    """
-    rut_fmt = _rut_para_mp(rut)
-    codigo = await _codigo_empresa_por_rut(rut_fmt, force=force)
-    if not codigo:
-        return {"ok": False, "reason": "sin_codigo_empresa", "rut": rut_fmt}
-
-    key = _cache_key("oc", rut=rut_fmt, desde=desde or "", hasta=hasta or "", limit=limit)
-    if not force:
-        cached = _cache_get(key)
-        if cached is not None:
-            return cached
-
-    # Endpoint ref: Ordenes de compra públicas
-    url = f"{BASE_URL}/OrdenesDeCompra"
-    params = {
-        "proveedor": codigo,                         # algunos ambientes usan "CodigoEmpresaProveedor" o "proveedor"
-        "pagina": 1,
-        "cantidad": max(1, min(limit, 100)),        # cap 100
+    result = {
+        "ok": ok_flag,
+        "registrado": registrado,
+        "habilitado": habilitado,
+        "habil_str": habil_str,
+        "score_promedio": score_promedio,
+        "sellos": sellos_list,
+        "ventas_12m": ventas_12m,
+        "rango_ventas": rango_ventas,
+        "codigo_empresa": codigo_empresa,
+        "razon_social": razon_social,
+        "nombre_fantasia": nombre_fantasia,
+        "oc_24m": oc_24m,
+        "monto_mp": monto_mp,
     }
-    if desde: params["fechadesde"] = desde
-    if hasta: params["fechahasta"] = hasta
 
-    res = await _safe_get(url, params)
-    if not res["ok"]:
-        out = {"ok": False, "rut": rut_fmt, "codigo_empresa": codigo, "error": res["payload"]}
-        _cache_set(key, out, TTL_OC_SECONDS)
-        return out
+    print(
+        f"[MP360] MP ok={result['ok']} reg={result['registrado']} "
+        f"hab={result['habilitado']} score={result['score_promedio']} "
+        f"ventas={result['ventas_12m']} sellos={len(result['sellos'])}"
+    )
+    return result
 
-    payload = res["payload"] if isinstance(res["payload"], dict) else {}
-    lista = payload.get("Listado") or payload.get("lista") or payload.get("Ordenes") or []
 
-    total_monto = 0.0
-    for it in lista:
-        try:
-            total_monto += float(it.get("MontoNeto", 0) or 0)
-        except Exception:
-            pass
+# ==========================
+#  Compatibilidad con router
+# ==========================
+# Alias para no tocar routers antiguos:
+fetch_mp_minimo = fetch_mp_core
 
-    out = {
-        "ok": True,
-        "rut": rut_fmt,
-        "codigo_empresa": codigo,
-        "resumen": {
-            "cantidad": len(lista),
-            "monto_neto_total": round(total_monto, 2),
-            "periodo": {"desde": desde, "hasta": hasta},
-        },
-        "items": lista[:limit],
-        "raw": payload,
-    }
-    _cache_set(key, out, TTL_OC_SECONDS)
-    return out
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Adjudicaciones por RUT proveedor
-# ──────────────────────────────────────────────────────────────────────────────
-async def fetch_adjudicaciones_por_rut(
-    rut: str,
-    desde: str | None = None,   # "YYYY-MM-DD"
-    hasta: str | None = None,   # "YYYY-MM-DD"
-    limit: int = 50,
-    force: bool = False,
-) -> dict:
+def build_mp_context(mp: dict) -> dict:
     """
-    Licitaciones adjudicadas al proveedor (por RUT/código empresa).
+    Helper opcional para el router:
+    arma mp_oc/mp_adj/mp_ventas coherentes con el template.
     """
-    rut_fmt = _rut_para_mp(rut)
-    codigo = await _codigo_empresa_por_rut(rut_fmt, force=force)
-    if not codigo:
-        return {"ok": False, "reason": "sin_codigo_empresa", "rut": rut_fmt}
-
-    key = _cache_key("adj", rut=rut_fmt, desde=desde or "", hasta=hasta or "", limit=limit)
-    if not force:
-        cached = _cache_get(key)
-        if cached is not None:
-            return cached
-
-    url = f"{BASE_URL}/Licitaciones/BuscarAdjudicaciones"
-    params = {
-        "proveedor": codigo,
-        "pagina": 1,
-        "cantidad": max(1, min(limit, 100)),
+    mp = mp or {}
+    mp_oc = {"ok": False, "resumen": {"cantidad": 0, "monto_neto_total": 0}, "items": []}
+    mp_adj = {"ok": False, "resumen": {"cantidad": 0, "monto_adjudicado_total": 0}, "items": []}
+    mp_ventas = {
+        "ok": bool(mp.get("rango") or mp.get("rango_ventas")),
+        "ventas_mp_ultimo_anio": mp.get("ventas_12m") or 0,
+        "rango": mp.get("rango") or mp.get("rango_ventas") or {},
     }
-    if desde: params["fechadesde"] = desde
-    if hasta: params["fechahasta"] = hasta
-
-    res = await _safe_get(url, params)
-    if not res["ok"]:
-        out = {"ok": False, "rut": rut_fmt, "codigo_empresa": codigo, "error": res["payload"]}
-        _cache_set(key, out, TTL_ADJ_SECONDS)
-        return out
-
-    payload = res["payload"] if isinstance(res["payload"], dict) else {}
-    lista = payload.get("Listado") or payload.get("Resultados") or []
-
-    total_adjudicado = 0.0
-    for it in lista:
-        try:
-            total_adjudicado += float(it.get("MontoAdjudicado", 0) or 0)
-        except Exception:
-            pass
-
-    out = {
-        "ok": True,
-        "rut": rut_fmt,
-        "codigo_empresa": codigo,
-        "resumen": {
-            "cantidad": len(lista),
-            "monto_adjudicado_total": round(total_adjudicado, 2),
-            "periodo": {"desde": desde, "hasta": hasta},
-        },
-        "items": lista[:limit],
-        "raw": payload,
-    }
-    _cache_set(key, out, TTL_ADJ_SECONDS)
-    return out
-
-async def resumen_mercado_publico(rut: str, limit: int = 10, force: bool = False) -> dict:
-    """Devuelve un resumen combinando proveedor, adjudicaciones y OC."""
-    prov = await fetch_proveedor_por_rut(rut, force=force)
-    adj  = await fetch_adjudicaciones_por_rut(rut, limit=limit, force=force)
-    oc   = await fetch_ordenes_de_compra_por_rut(rut, limit=limit, force=force)
-    return {
-        "encontrado": bool(prov.get("encontrado")),
-        "rut_consultado": prov.get("rut_consultado") or rut,
-        "proveedor": prov,
-        "adjudicaciones": adj,
-        "ordenes_compra": oc,
-    }
+    return {"mp_oc": mp_oc, "mp_adj": mp_adj, "mp_ventas": mp_ventas}

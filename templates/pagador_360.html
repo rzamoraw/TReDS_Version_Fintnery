@@ -17,7 +17,7 @@
     <div class="card-body">
       <div class="d-flex justify-content-between">
         <div>
-          <h5 class="mb-1">{{ perfil.razon_social or "(Razón social no registrada)" }}</h5>
+          <h5 class="mb-1">{{ perfil.razon_social or mp.razon_social or mp.nombre_fantasia or "(Razón social no registrada)" }}</h5>
           <div class="text-muted">RUT: <strong>{{ rut }}</strong></div>
           {% if perfil.nombre_fantasia %}<div class="text-muted">Nombre Fantasía: {{ perfil.nombre_fantasia }}</div>{% endif %}
           {% if perfil.sector_ciiu %}<div class="text-muted">Sector CIIU: {{ perfil.sector_ciiu }}</div>{% endif %}
@@ -76,25 +76,18 @@
   </div>
 
   <div class="card mb-4">
-  <!-- altura total del card compacta -->
-  <div class="card-body" style="height: 180px;">
-    <h6 class="mb-2">Monto confirmado por mes</h6>
-    <!-- contenedor con altura fija para el canvas -->
-    <div style="height: 120px;">
-      <canvas id="barMontos" class="w-100 h-100"></canvas>
+    <div class="card-body" style="height: 180px;">
+      <h6 class="mb-2">Monto confirmado por mes</h6>
+      <div style="height: 120px;">
+        <canvas id="barMontos" class="w-100 h-100"></canvas>
+      </div>
     </div>
   </div>
-</div>
 
-  <!-- ESG -->
+  <!-- ESG (solo certificaciones BD, sin API externa) -->
   <div class="card mb-4">
     <div class="card-body">
-      <h6 class="mb-3">
-        ESG & Certificaciones
-        {% if esg_api and esg_api.certificaciones and esg_api.certificaciones|length > 0 %}
-            <span class="badge text-bg-info ms-2">Incluye datos de API</span>
-        {% endif %}
-      </h6>
+      <h6 class="mb-3">ESG & Certificaciones</h6>
       {% if certs and certs|length > 0 %}
       <div class="table-responsive">
         <table class="table table-sm align-middle">
@@ -117,22 +110,129 @@
     </div>
   </div>
 
-  <!-- Mercado Público -->
+  <!-- RETC — Establecimientos (separado de la card ESG) -->
+  {% set retc = esg_retc or {} %}
+  {% if retc.ok and retc.matches and retc.matches|length > 0 %}
   <div class="card mb-4">
     <div class="card-body">
-      <!-- Título + badge -->
+      <h6 class="mb-2">
+        RETC — Establecimientos
+        <small class="text-muted">({{ retc.total }} resultados)</small>
+      </h6>
+      <div class="mb-2">
+        <a href="{{ retc.evidencia_url }}" target="_blank" rel="noopener">Ver recurso oficial RETC</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>RUT</th>
+              <th>Razón social</th>
+              <th>Establecimiento</th>
+              <th>Comuna</th>
+              <th>Región</th>
+              <th>Rubro</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in retc.matches %}
+            <tr>
+              <td>{{ it.rut or rut }}</td>
+              <td>{{ it.razon_social or perfil.razon_social }}</td>
+              <td>{{ it.establecimiento or "—" }}</td>
+              <td>{{ it.comuna or "—" }}</td>
+              <td>{{ it.region or "—" }}</td>
+              <td>{{ it.rubro or "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ====== MERCADO PÚBLICO (card única, con sellos adentro) ====== #}
+  <div class="card mb-4">
+    <div class="card-body">
+
+      {# Normalizaciones y defensas #}
+      {% set _mp       = mp or {} %}
+      {% set _is_map   = (_mp is mapping) %}
+      {% set sellos    = (_is_map and (_mp.sellos or [])) or [] %}
+      {% set is_reg    = (_is_map and (_mp.registrado or (sellos|length > 0))) %}
+      {% set hab_raw   = _is_map and _mp.habilitado %}
+      {% set rango     = (_is_map and (_mp.rango or None)) or (mp_ventas and mp_ventas.rango) %}
+      {% set ventas12  = (_is_map and (_mp.ventas_12m or 0)) or (mp_ventas and (mp_ventas.ventas_mp_ultimo_anio or 0)) or 0 %}
+
+      {# Derivados limpios #}
+      {% set entcode = (
+          _is_map and (
+            _mp.entCode
+            or (sellos and (sellos[0].entCode if sellos[0] is mapping else None))
+            or _mp.get('codigo_empresa')
+          )
+        ) or None %}
+
+      {% set nombre_emp = (
+          _is_map and (
+            _mp.razon_social
+            or _mp.nombre_fantasia
+            or _mp.get('nombre_empresa')
+          )
+        ) or None %}
+
+      {% set score = (
+          _is_map and (
+            (_mp.get('score') if _mp.get('score') is not none else None)
+            or (_mp.get('score_promedio') if _mp.get('score_promedio') is not none else None)
+          )
+        ) %}
+
+      <!-- Título + sellos + badges + rango -->
       <div class="d-flex justify-content-between align-items-center">
         <div>
           <h6 class="mb-0">Mercado Público</h6>
-          <small class="text-muted">
-            RUT consultado: {{ (mp and mp.get('rut_consultado')) or rut }}
-          </small>
+          <small class="text-muted">RUT consultado: {{ rut }}</small>
         </div>
-        {% if mp and mp.get('encontrado') %}
-          <span class="badge text-bg-success">Proveedor registrado</span>
-        {% else %}
-          <span class="badge text-bg-secondary">No aparece en MP</span>
-        {% endif %}
+
+        <div class="d-flex align-items-center gap-2">
+          {% for s in sellos %}
+            <span class="badge bg-success">
+              {{ s.valor or ('Sello ' ~ (s.tipoSello or '')) }}
+            </span>
+          {% endfor %}
+
+          {% if _is_map %}
+            {% if is_reg %}
+              <span class="badge text-bg-success">Proveedor registrado</span>
+            {% else %}
+              <span class="badge text-bg-secondary">No registrado</span>
+            {% endif %}
+
+            {% if hab_raw is not none %}
+              {% if hab_raw %}
+                <span class="badge text-bg-primary">Habilitada para ofertar</span>
+              {% else %}
+                <span class="badge text-bg-warning text-dark">No habilitada</span>
+              {% endif %}
+            {% endif %}
+          {% else %}
+            <span class="badge text-bg-secondary">Sin datos</span>
+          {% endif %}
+
+          {% if mp_ventas and mp_ventas.ok and mp_ventas.rango %}
+            <small class="text-muted ms-2">
+              Rango: {{ mp_ventas.rango.agno1 or "—" }}-{{ "%02d"|format(mp_ventas.rango.nroMes1 or 0) }}
+              → {{ mp_ventas.rango.agno2 or "—" }}-{{ "%02d"|format(mp_ventas.rango.nroMes2 or 0) }}
+            </small>
+          {% elif rango %}
+            <small class="text-muted ms-2">
+              Rango: {{ rango.agno1 or "—" }}-{{ "%02d"|format(rango.nroMes1 or 0) }}
+              → {{ rango.agno2 or "—" }}-{{ "%02d"|format(rango.nroMes2 or 0) }}
+            </small>
+          {% endif %}
+        </div>
       </div>
 
       <!-- Acciones -->
@@ -141,7 +241,7 @@
            href="/pagador/ext/mercado-publico/{{ rut }}"
            target="_blank" rel="noopener">Ver JSON (API)</a>
         <a class="btn btn-sm btn-outline-secondary"
-           href="https://www.google.com/search?q=site%3Amercadopublico.cl+%22{{ ((mp and mp.get('rut_consultado')) or rut)|urlencode }}%22"
+           href="https://www.google.com/search?q=site%3Amercadopublico.cl+%22{{ rut|urlencode }}%22"
            target="_blank" rel="noopener">Buscar en Google (MP)</a>
         <a class="btn btn-sm btn-outline-primary"
            href="/pagador/ext/mercado-publico/{{ rut }}?force=1"
@@ -150,7 +250,37 @@
 
       <hr class="mt-3 mb-3"/>
 
-      {# Normalizar estructuras para que nunca rompa si falta algo #}
+      <!-- Resumen identificación + score + ventas -->
+      <div class="row mb-2">
+        <div class="col-md-6">
+          <div><strong>Código Empresa:</strong> {{ entcode or "—" }}</div>
+          <div><strong>Nombre Empresa:</strong> {{ nombre_emp or "(sin nombre en MP)" }}</div>
+          <div>
+            <strong>Score contractual:</strong>
+            {% if score is not none %} {{ "%.1f"|format(score) }}/5 {% else %} —/5 {% endif %}
+          </div>
+          <div>
+            <strong>Habilidad MP:</strong>
+            {% if hab_raw is none %} —
+            {% elif hab_raw %} HABIL
+            {% else %} NO HABIL
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="fs-6 fw-semibold">
+            Ventas últimos 12 meses: ${{ "{:,.0f}".format(ventas12) }}
+            {% if rango %}
+              <small class="text-muted ms-1">
+                ({{ rango.agno1 or "—" }}-{{ "%02d"|format(rango.nroMes1 or 0) }}
+                → {{ rango.agno2 or "—" }}-{{ "%02d"|format(rango.nroMes2 or 0) }})
+              </small>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
       {% set oc_res    = (mp_oc  and mp_oc.get('resumen'))  or {} %}
       {% set oc_items  = (mp_oc  and mp_oc.get('items'))    or [] %}
       {% set adj_res   = (mp_adj and mp_adj.get('resumen')) or {} %}
@@ -158,100 +288,94 @@
 
       <div class="row">
         <div class="col-md-6">
-          <div><strong>Código Empresa:</strong> {{ (mp and mp.get('codigo_empresa')) or "—" }}</div>
-          <div><strong>Nombre Empresa:</strong> {{ (mp and mp.get('nombre_empresa')) or "—" }}</div>
-        </div>
-        <div class="col-md-6">
           <div class="mb-1">
             <strong>OC recientes:</strong> {{ oc_res.get('cantidad', 0) }}
             &nbsp;|&nbsp;
             <strong>Neto total (muestra):</strong>
             ${{ "{:,.0f}".format(oc_res.get('monto_neto_total', 0)) }}
           </div>
-          <div>
+          {% if oc_items|length > 0 %}
+            <button class="btn btn-sm btn-outline-secondary" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#ocCollapse">
+              Ver detalle Órdenes de Compra
+            </button>
+            <div class="collapse mt-2" id="ocCollapse">
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th># OC</th>
+                      <th>Fecha</th>
+                      <th>Comprador</th>
+                      <th class="text-end">Monto Neto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for it in oc_items %}
+                      {% set v = (it.get('MontoNeto') or it.get('Monto') or 0) | float %}
+                      <tr>
+                        <td>{{ it.get('NumeroOC') or it.get('CodigoOC') or "—" }}</td>
+                        <td>{{ it.get('FechaCreacion') or it.get('Fecha') or "—" }}</td>
+                        <td>
+                          {% set comp = it.get('Comprador') %}
+                          {{ (comp and (comp.get('Nombre') or comp)) or "—" }}
+                        </td>
+                        <td class="text-end">${{ "{:,.0f}".format(v) }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="col-md-6">
+          <div class="mb-1">
             <strong>Adjudicaciones:</strong> {{ adj_res.get('cantidad', 0) }}
             &nbsp;|&nbsp;
             <strong>Monto adjudicado (muestra):</strong>
             ${{ "{:,.0f}".format(adj_res.get('monto_adjudicado_total', 0)) }}
           </div>
+          {% if adj_items|length > 0 %}
+            <button class="btn btn-sm btn-outline-secondary" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#adjCollapse">
+              Ver detalle Adjudicaciones
+            </button>
+            <div class="collapse mt-2" id="adjCollapse">
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th>Cód. Licitación</th>
+                      <th>Nombre</th>
+                      <th>Fecha</th>
+                      <th>Comprador</th>
+                      <th class="text-end">Monto Adjudicado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for it in adj_items %}
+                      {% set v = (it.get('MontoAdjudicado') or it.get('Monto') or 0) | float %}
+                      <tr>
+                        <td>{{ it.get('CodigoLicitacion') or "—" }}</td>
+                        <td>{{ it.get('Nombre') or "—" }}</td>
+                        <td>{{ it.get('FechaAdjudicacion') or it.get('Fecha') or "—" }}</td>
+                        <td>
+                          {% set comp = it.get('Comprador') %}
+                          {{ (comp and (comp.get('Nombre') or comp)) or "—" }}
+                        </td>
+                        <td class="text-end">${{ "{:,.0f}".format(v) }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {% endif %}
         </div>
       </div>
 
-      {% if oc_items|length > 0 %}
-        <div class="mt-3">
-          <button class="btn btn-sm btn-outline-secondary" type="button"
-                  data-bs-toggle="collapse" data-bs-target="#ocCollapse">
-            Ver detalle Órdenes de Compra
-          </button>
-          <div class="collapse mt-2" id="ocCollapse">
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead>
-                  <tr>
-                    <th># OC</th>
-                    <th>Fecha</th>
-                    <th>Comprador</th>
-                    <th class="text-end">Monto Neto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for it in oc_items %}
-                    {% set v = (it.get('MontoNeto') or it.get('Monto') or 0) | float %}
-                    <tr>
-                      <td>{{ it.get('NumeroOC') or it.get('CodigoOC') or "—" }}</td>
-                      <td>{{ it.get('FechaCreacion') or it.get('Fecha') or "—" }}</td>
-                      <td>
-                        {% set comp = it.get('Comprador') %}
-                        {{ (comp and (comp.get('Nombre') or comp)) or "—" }}
-                      </td>
-                      <td class="text-end">${{ "{:,.0f}".format(v) }}</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      {% endif %}
-
-      {% if adj_items|length > 0 %}
-        <div class="mt-3">
-          <button class="btn btn-sm btn-outline-secondary" type="button"
-                  data-bs-toggle="collapse" data-bs-target="#adjCollapse">
-            Ver detalle Adjudicaciones
-          </button>
-          <div class="collapse mt-2" id="adjCollapse">
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead>
-                  <tr>
-                    <th>Cód. Licitación</th>
-                    <th>Nombre</th>
-                    <th>Fecha</th>
-                    <th>Comprador</th>
-                    <th class="text-end">Monto Adjudicado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for it in adj_items %}
-                    {% set v = (it.get('MontoAdjudicado') or it.get('Monto') or 0) | float %}
-                    <tr>
-                      <td>{{ it.get('CodigoLicitacion') or "—" }}</td>
-                      <td>{{ it.get('Nombre') or "—" }}</td>
-                      <td>{{ it.get('FechaAdjudicacion') or it.get('Fecha') or "—" }}</td>
-                      <td>
-                        {% set comp = it.get('Comprador') %}
-                        {{ (comp and (comp.get('Nombre') or comp)) or "—" }}
-                      </td>
-                      <td class="text-end">${{ "{:,.0f}".format(v) }}</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      {% endif %}
     </div>
   </div>
 
@@ -277,13 +401,14 @@
               <td>{{ f.fecha_emision or "—" }}</td>
               <td>{{ f.fecha_vencimiento or "—" }}</td>
               <td>
-                {% set ev = (f.estado_vista or f.estado_confirmacion or "Pendiente") %}
+                {% set ev = f.estado_vista or f.estado_dte or f.estado_confirmacion or "Pendiente" %}
                 <span class="badge
                   {% if ev.lower().startswith('adjudic') %} bg-success
                   {% elif ev.lower().startswith('confirming') %} bg-info
                   {% elif ev.lower() == 'rechazada' %} bg-danger
+                  {% elif ev.lower().startswith('confirmada') %} bg-success
                   {% else %} bg-secondary {% endif %}">
-                  {{ ev }}
+                {{ ev }}
                 </span>
               </td>
             </tr>
@@ -301,42 +426,33 @@
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  // Totales
   const confirmadas = {{ kpis.totales.confirmadas or 0 }};
   const rechazadas  = {{ kpis.totales.rechazadas  or 0 }};
   const pendientes  = {{ kpis.totales.pendientes  or 0 }};
 
-  // Pie
   new Chart(document.getElementById('pieConfirm'), {
     type: 'pie',
-    data: {
-      labels: ['Confirmadas/Adjudicadas','Rechazadas','Pendientes'],
-      datasets: [{ data: [confirmadas, rechazadas, pendientes] }]
-    },
+    data: { labels: ['Confirmadas/Adjudicadas','Rechazadas','Pendientes'],
+            datasets: [{ data: [confirmadas, rechazadas, pendientes] }] },
     options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
   });
 
-  // Series desde el router
   const tmcLabels   = {{ tmc_labels_json   | safe }};
   const tmcData     = {{ tmc_data_json     | safe }};
   const montoLabels = {{ monto_labels_json | safe }};
   const montoData   = {{ monto_data_json   | safe }};
 
-  // Línea TMC
   new Chart(document.getElementById('lineTMC'), {
     type: 'line',
     data: { labels: tmcLabels, datasets: [{ label: 'TMC (días)', data: tmcData }] },
     options: { responsive: true }
   });
 
-  // Barras montos
   new Chart(document.getElementById('barMontos'), {
     type: 'bar',
     data: { labels: montoLabels, datasets: [{ label: 'Monto confirmado', data: montoData, maxBarThickness: 18 }] },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,         // << clave para respetar el alto del contenedor
-      plugins: { legend: { display: false } },
+      responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
       scales: {
         y: { ticks: { callback: (v) => Intl.NumberFormat('es-CL').format(v) } },
         x: { grid: { display: false } }

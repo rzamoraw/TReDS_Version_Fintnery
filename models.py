@@ -2,8 +2,11 @@ from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy import Date, Boolean, DateTime, JSON
-from sqlalchemy import cast
+from sqlalchemy import cast, Text
 from sqlalchemy.orm import foreign
+from sqlalchemy import UniqueConstraint
+from sqlalchemy.sql import func
+
 
 class Proveedor(Base):
     __tablename__ = "proveedores"
@@ -169,6 +172,53 @@ class EsgCertificacion(Base):
     tipo = Column(String)                      # ISO 9001, ISO 14001, ISO 27001, B-Corp, etc.
     emisor = Column(String, nullable=True)     # entidad certificadora
     valido_hasta = Column(Date, nullable=True)
-    enlace = Column(String, nullable=True)    
+    enlace = Column(String, nullable=True) 
+
+class ESGCriterion(Base):
+    __tablename__ = "esg_criterios"
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, nullable=False)   # p.ej. "G-ANTI_CORR"
+    nombre = Column(String(255), nullable=False)
+    categoria = Column(String(1), nullable=False)            # "E","S","G"
+    peso = Column(Float, default=1.0)
+    answer_type = Column(String(20), default="bool")         # "bool","choice","number","text"
+    options_json = Column(JSON, nullable=True)               # metadatos de opciones/umbrales
+    activo = Column(Boolean, default=True)
+
+class ESGAssessment(Base):
+    __tablename__ = "esg_evaluaciones"
+    id = Column(Integer, primary_key=True)
+    pagador_rut = Column(String(20), index=True, nullable=False)  # RUT normalizado
+    periodo_anio = Column(Integer, nullable=False)
+    periodo_mes = Column(Integer, nullable=False)
+    estado = Column(String(20), default="en_proceso")  # en_proceso | enviado | certificado
+    puntaje_total = Column(Float, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class ESGAnswer(Base):
+    __tablename__ = "esg_respuestas"
+    id = Column(Integer, primary_key=True)
+    assessment_id = Column(Integer, ForeignKey("esg_evaluaciones.id"), nullable=False, index=True)
+    criterio_id = Column(Integer, ForeignKey("esg_criterios.id"), nullable=False, index=True)
+    valor_bool = Column(Boolean, nullable=True)
+    valor_number = Column(Float, nullable=True)
+    valor_text = Column(Text, nullable=True)
+    evidencia_url = Column(String(500), nullable=True)
+    puntaje = Column(Float, default=0.0)
+
+    __table_args__ = (
+        UniqueConstraint('assessment_id', 'criterio_id', name='uq_assessment_criterio'),
+    )
+
+class ESGEvidence(Base):
+    __tablename__ = "esg_evidencias"
+    id = Column(Integer, primary_key=True)
+    assessment_id = Column(Integer, ForeignKey("esg_evaluaciones.id"), nullable=False, index=True)
+    criterio_id = Column(Integer, ForeignKey("esg_criterios.id"), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    path = Column(String(500), nullable=False)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
                            
                               

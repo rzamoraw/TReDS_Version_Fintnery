@@ -41,6 +41,12 @@
     🏁 Adjudicadas <span class="badge bg-secondary">{{ total_adjudicadas }}</span>
     </button>
 </li>
+ <!-- 6) Rechazadas -->
+<li class="nav-item">
+  <a class="nav-link{% if active_tab=='rechazadas' %} active{% endif %}" href="#rechazadas" data-bs-toggle="tab">
+    ⛔ Rechazadas <span class="badge bg-secondary">{{ total_rechazadas }}</span>
+  </a>
+</li>
 </ul>
 
   <div class="tab-content" id="facturasTabsContent">
@@ -356,6 +362,42 @@
         {% else %}
         <tr><td colspan="9" class="text-center text-muted">Sin adjudicadas.</td></tr>
         {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ⛔ Tab: Rechazadas -->
+<div class="tab-pane{% if active_tab=='rechazadas' %} active show{% endif %}" id="rechazadas">
+  <h6 class="mb-2">Facturas rechazadas</h6>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Folio</th>
+          <th>Receptor</th>
+          <th>Monto</th>
+          <th>F. Emisión</th>
+          <th>F. Venc.</th>
+          <th>Origen</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in facturas_rechazadas %}
+        <tr>
+          <td>{{ f.folio }}</td>
+          <td>{{ f.razon_social_receptor or f.rut_receptor }}</td>
+          <td>${{ (f.monto or 0)|int }}</td>
+          <td>{{ f.fecha_emision or "—" }}</td>
+          <td>{{ f.fecha_vencimiento or "—" }}</td>
+          <td>{{ f.origen_confirmacion or "—" }}</td>
+          <td><span class="badge bg-danger">{{ f.estado_dte or "Rechazada" }}</span></td>
+        </tr>
+        {% endfor %}
+        {% if facturas_rechazadas|length == 0 %}
+        <tr><td colspan="7" class="text-muted">No hay facturas rechazadas.</td></tr>
+        {% endif %}
       </tbody>
     </table>
   </div>
