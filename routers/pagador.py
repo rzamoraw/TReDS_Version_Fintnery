@@ -11,8 +11,10 @@ from models import Pagador, FacturaDB, Financiador, Fondo, PagadorProfile, EsgCe
 from datetime import datetime, timedelta, date
 from rut_utils import normalizar_rut
 from services.pagador_360 import kpis_pagador
-from services.connectors.mercado_publico import fetch_mp_minimo, build_mp_context
-from services.connectors.retc import fetch_establecimientos_por_razon_social
+from services.connectors.mercado_publico import fetch_mp_minimo
+from services.connectors.retc import fetch_emisiones_totales_por_razon_social
+from services.resolvers.nombres import resolve_display_name
+from services.connectors import snifa
 
 import json
 import asyncio
@@ -22,12 +24,12 @@ templates = Jinja2Templates(directory="templates")
 templates_middle = Jinja2Templates(directory="templates/middle")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# ESG: importar si existe; si no, dejar stub que retorna {}
+# SNIFA: importar si existe; si no, dejar stub que retorna {}
 try:
-    from services.connectors.esg import fetch_esg_certificaciones_por_rut
+    from services.connectors.snifa import fetch_snifa_resumen_por_rut_razon
 except Exception:
-    async def fetch_esg_certificaciones_por_rut(rut: str, *, force: bool = False):
-        return {}
+    async def fetch_snifa_resumen_por_rut_razon(rut: str, razon: str | None = None):
+        return {"ok": False, "counters": {}, "muestras": [], "evidencias": []}
 
 def _rango_12m_hasta_hoy():
     """
@@ -473,12 +475,11 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
 
     ids = [f.id for f in recientes]
     if ids:
-        # OJO: asegúrate de tener from sqlalchemy import func
         adj_ids = {
             r[0] for r in db.query(OfertaFinanciamiento.factura_id)
                             .filter(
                                 OfertaFinanciamiento.factura_id.in_(ids),
-                                func.lower(OfertaFinanciamiento.estado).like("adjudic%")  # <- si esto te da error, cambia a func.lower(OfertaFinanciamiento.estado)
+                                func.lower(OfertaFinanciamiento.estado).like("adjudic%")
                             ).all()
         }
     else:
@@ -509,7 +510,6 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
         mp = await fetch_mp_minimo(rut_norm)
     except Exception as e:
         print(f"[MP360] fetch_mp_minimo error: {e}")
-        # defaults seguros para que el template nunca reviente
         mp = {
             "ok": False, "sellos": [], "ventas_12m": 0, "rango": None,
             "registrado": False, "habilitado": None,
@@ -517,12 +517,6 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
             "razon_social": None, "nombre_fantasia": None,
             "oc_24m": 0, "entCode": None
         }
-
-    # SIEMPRE construir los derivados del bloque MP desde el helper
-    ctx_mp = build_mp_context(mp)
-    mp_oc    = ctx_mp["mp_oc"]
-    mp_adj   = ctx_mp["mp_adj"]
-    mp_ventas = ctx_mp["mp_ventas"]
 
     ctx_mp    = build_mp_context(mp)
     mp_oc     = ctx_mp["mp_oc"]
@@ -532,26 +526,24 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
     # ---------------------------
     # Nombre a mostrar (razón social para RETC)
     # ---------------------------
-    # REMOVE: dependencias de "esg_api / autollenado"
-    # ADD: construir display_name solo con BD/Facturas/MP
     display_name = None
 
-    # 1) si tienes perfil en BD, úsalo
-    perfil_bd = datos["esg"].get("perfil") if "esg" in datos else None
+    # 1) Perfil en BD (si existe en tu modelo un perfil del pagador)
+    perfil_bd = datos.get("esg", {}).get("perfil") if "esg" in datos else None
     if perfil_bd:
         display_name = (
             getattr(perfil_bd, "razon_social", None)
             or getattr(perfil_bd, "nombre_fantasia", None)
         )
-    
-    # 2) si no, usa razón social que viene en las facturas recientes
+
+    # 2) Razón social de facturas locales (más estable que MP)
     if not display_name:
         for f in recientes:
             if getattr(f, "razon_social_receptor", None):
                 display_name = f.razon_social_receptor
                 break
 
-    # 3) si no, usa MP mínimo
+    # 3) MP mínimo (si viene algo)
     if not display_name and mp:
         display_name = mp.get("razon_social") or mp.get("nombre_fantasia")
 
@@ -560,26 +552,71 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
 
     perfil_display = perfil_bd or PagadorProfile(rut=rut_norm, razon_social=display_name)
 
+    # ---------- SNIFA (SMA) ----------
+    snifa = {}
+    try:
+        snifa = await fetch_snifa_resumen_por_rut_razon(
+            rut=rut_norm,
+            razon_social=display_name if display_name != "(Sin registro)" else None,
+            limit_por_tabla=1200,
+            muestras=5,
+            force=False
+        )
+    except Exception as e:
+        print(f"[SNIFA] error: {e}")
+        snifa = {"ok": False, "counters": {}, "muestras": {}, "evidencias": {}}
+
     # ---------- RETC (RECURSO OFICIAL: Establecimientos) ----------
-    # ADD: consultar RETC por razón social exacta (filters={"Razón social": ...})
+    # Consultar RETC por razón social exacta y normalizar para el template
     esg_retc = {}
     if display_name and display_name != "(Sin registro)":
         try:
-            esg_retc = await fetch_establecimientos_por_razon_social(display_name, limit=50)
-            # asegura que cada match lleve el rut del contexto
-            if esg_retc and esg_retc.get("matches"):
-                for it in esg_retc["matches"]:
-                    it.setdefault("rut", rut_norm)
+            raw = await fetch_emisiones_totales_por_razon_social(display_name, limit=50, force=False)
+            sums = (raw.get("sums") or raw.get("totales") or {})
+            esg_retc = {
+                "ok": bool(raw.get("ok")),
+                "matches": raw.get("matches") or [],
+                "sum": {
+                    "co2":          round(float(sums.get("co2", 0) or 0), 2),
+                    "nox":          round(float(sums.get("nox", 0) or 0), 2),
+                    "so2":          round(float(sums.get("so2", 0) or 0), 2),
+                    "mp":           round(float(sums.get("mp", 0)  or 0), 2),
+                    "res_pelig":    round(float(sums.get("res_pelig", 0) or 0), 2),
+                    "res_no_pelig": round(float(sums.get("res_no_pelig", 0) or 0), 2),
+                },
+                "count": len(raw.get("matches") or []),
+                "total": len(raw.get("matches") or []),   # back-compat si el template mira .total
+                "year_label": "RETC 2019",                # dataset actual disponible que usamos
+                "evidencia_url": raw.get("evidencia_url"),
+                "rut": rut_norm,
+            }
         except Exception as e:
             print(f"[RETC] error: {e}")
-            esg_retc = {"ok": False, "matches": [], "error": str(e)}
-    
-    
-    
-    # ---------- Certificaciones (solo BD, sin API externa) ----------
-    # Si ya no quieres mostrar nada de certificaciones, puedes dejar 'certs=[]'
-    
-    certs_db = datos["esg"].get("certificaciones") if "esg" in datos else []
+            esg_retc = {
+                "ok": False,
+                "matches": [],
+                "sum": {"co2":0,"nox":0,"so2":0,"mp":0,"res_pelig":0,"res_no_pelig":0},
+                "count": 0,
+                "total": 0,
+                "year_label": "RETC 2019",
+                "evidencia_url": None,
+                "rut": rut_norm,
+                "error": str(e),
+            }
+    else:
+        esg_retc = {
+            "ok": False,
+            "matches": [],
+            "sum": {"co2":0,"nox":0,"so2":0,"mp":0,"res_pelig":0,"res_no_pelig":0},
+            "count": 0,
+            "total": 0,
+            "year_label": "RETC 2019",
+            "evidencia_url": None,
+            "rut": rut_norm,
+        }
+
+    # ---------- Certificaciones (solo BD) ----------
+    certs_db = datos.get("esg", {}).get("certificaciones") if "esg" in datos else []
     certs_merged = [
         {
             "tipo": c.tipo,
@@ -590,6 +627,7 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
         }
         for c in (certs_db or [])
     ]
+
     print(f"[RETC] rut={rut_norm} razon_social='{display_name}' matches={ (esg_retc.get('total') if esg_retc else 0) }")
 
     context = {
@@ -597,9 +635,9 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
         "rut": rut_norm,
         "perfil": perfil_display,
         "kpis": datos,
-        "certs": certs_merged,     # ← deja solo BD; si no quieres mostrar, pásalo como []
-        "esg_api": {},             # ← NO usamos más “api esg”; template seguirá funcionando
-        "esg_retc": esg_retc,      # ← NUEVO: resultados de RETC (para la card)
+        "certs": certs_merged,
+        "esg_api": {},             # mantenemos vacía para compatibilidad con el template
+        "esg_retc": esg_retc,      # usado por la card RETC en el template
         "recientes": recientes,
         "tmc_labels_json":   json.dumps(tmc_labels, ensure_ascii=False),
         "tmc_data_json":     json.dumps(tmc_data, ensure_ascii=False),
@@ -609,5 +647,6 @@ async def vista_360_pagador(request: Request, rut: str, db: Session = Depends(ge
         "mp_oc": mp_oc,
         "mp_adj": mp_adj,
         "mp_ventas": mp_ventas,
+        "snifa": snifa,
     }
     return templates.TemplateResponse("pagador_360.html", context)

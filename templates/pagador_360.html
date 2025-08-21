@@ -84,73 +84,221 @@
     </div>
   </div>
 
-  <!-- ESG (solo certificaciones BD, sin API externa) -->
-  <div class="card mb-4">
-    <div class="card-body">
-      <h6 class="mb-3">ESG & Certificaciones</h6>
-      {% if certs and certs|length > 0 %}
-      <div class="table-responsive">
-        <table class="table table-sm align-middle">
-          <thead><tr><th>Certificación</th><th>Emisor</th><th>Válido hasta</th><th>Enlace</th></tr></thead>
-          <tbody>
-            {% for c in certs %}
-            <tr>
-              <td>{{ c.tipo }}</td>
-              <td>{{ c.emisor or "—" }}</td>
-              <td>{{ c.valido_hasta or "—" }}</td>
-              <td>{% if c.enlace %}<a href="{{ c.enlace }}" target="_blank">Ver</a>{% else %}—{% endif %}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+<!-- ESG (solo certificaciones BD, sin API externa) -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h6 class="mb-3">ESG & Certificaciones</h6>
+    {% if certs and certs|length > 0 %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr><th>Certificación</th><th>Emisor</th><th>Válido hasta</th><th>Enlace</th></tr>
+        </thead>
+        <tbody>
+          {% for c in certs %}
+          <tr>
+            <td>{{ c.tipo }}</td>
+            <td>{{ c.emisor or "—" }}</td>
+            <td>{{ c.valido_hasta or "—" }}</td>
+            <td>{% if c.enlace %}<a href="{{ c.enlace }}" target="_blank">Ver</a>{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-muted">Sin certificaciones registradas.</div>
+    {% endif %}
+
+    {# === RETC dentro de la misma card ESG === #}
+    {% set retc = esg_retc or {} %}
+    {% if retc.ok and retc.matches and retc.matches|length > 0 %}
+      <hr class="my-3"/>
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="text-muted">
+          <strong>RETC — Establecimientos</strong>
+          <small class="ms-1">({{ retc.total }} resultados)</small>
+        </div>
+        {% if retc.evidencia_url %}
+          <a href="{{ retc.evidencia_url }}" target="_blank" rel="noopener"
+             class="btn btn-sm btn-outline-secondary">
+            Fuente RETC
+          </a>
+        {% endif %}
       </div>
-      {% else %}
-      <div class="text-muted">Sin certificaciones registradas.</div>
+
+      <div class="alert alert-secondary py-2 px-3 d-flex justify-content-between align-items-center">
+        <div class="small">
+          <strong>{{ retc.year_label }}</strong> —
+          CO₂: {{ retc.sum.co2 }} t/año ·
+          NOx: {{ retc.sum.nox }} t/año ·
+          SO₂: {{ retc.sum.so2 }} t/año ·
+          MP: {{ retc.sum.mp }} t/año ·
+          Res. Pelig.: {{ retc.sum.res_pelig }} t/año ·
+          Res. No Pelig.: {{ retc.sum.res_no_pelig }} t/año
+          <small class="text-muted"> ({{ retc.count }} est.)</small>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                data-bs-toggle="collapse" data-bs-target="#retcEstab">
+          Ver detalle establecimientos
+        </button>
+      </div>
+
+      <div id="retcEstab" class="collapse">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>RUT</th>
+                <th>Razón social</th>
+                <th>Establecimiento</th>
+                <th>Comuna</th>
+                <th>Región</th>
+                <th>Rubro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for it in retc.matches %}
+              <tr>
+                <td>{{ it.rut or rut }}</td>
+                <td>{{ it.razon_social or perfil.razon_social }}</td>
+                <td>{{ it.establecimiento or "—" }}</td>
+                <td>{{ it.comuna or "—" }}</td>
+                <td>{{ it.region or "—" }}</td>
+                <td>{{ it.rubro or "—" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+  </div> <!-- fin card-body -->
+</div>   <!-- fin card ESG -->
+
+{# --- SNIFA (SMA) — resumen fiscalizaciones / sanciones --- #}
+{% set _snifa = snifa or {} %}
+<div class="mt-3 border-top pt-3">
+  <div class="d-flex align-items-center justify-content-between">
+    <h6 class="mb-0">SNIFA (SMA) — Fiscalizaciones y Sanciones</h6>
+    <div class="d-flex gap-2">
+      {% if _snifa.evidencias and _snifa.evidencias.fiscalizaciones %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ _snifa.evidencias.fiscalizaciones }}" target="_blank" rel="noopener">Dataset Fiscalizaciones</a>
+      {% endif %}
+      {% if _snifa.evidencias and _snifa.evidencias.sancionatorios %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ _snifa.evidencias.sancionatorios }}" target="_blank" rel="noopener">Dataset Sancionatorios</a>
+      {% endif %}
+      {% if _snifa.evidencias and _snifa.evidencias.sanciones_firmes %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ _snifa.evidencias.sanciones_firmes }}" target="_blank" rel="noopener">Dataset Sanciones Firmes</a>
       {% endif %}
     </div>
   </div>
 
-  <!-- RETC — Establecimientos (separado de la card ESG) -->
-  {% set retc = esg_retc or {} %}
-  {% if retc.ok and retc.matches and retc.matches|length > 0 %}
-  <div class="card mb-4">
-    <div class="card-body">
-      <h6 class="mb-2">
-        RETC — Establecimientos
-        <small class="text-muted">({{ retc.total }} resultados)</small>
-      </h6>
-      <div class="mb-2">
-        <a href="{{ retc.evidencia_url }}" target="_blank" rel="noopener">Ver recurso oficial RETC</a>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm align-middle">
-          <thead>
-            <tr>
-              <th>RUT</th>
-              <th>Razón social</th>
-              <th>Establecimiento</th>
-              <th>Comuna</th>
-              <th>Región</th>
-              <th>Rubro</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for it in retc.matches %}
-            <tr>
-              <td>{{ it.rut or rut }}</td>
-              <td>{{ it.razon_social or perfil.razon_social }}</td>
-              <td>{{ it.establecimiento or "—" }}</td>
-              <td>{{ it.comuna or "—" }}</td>
-              <td>{{ it.region or "—" }}</td>
-              <td>{{ it.rubro or "—" }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+  {% set cnt = _snifa.counters or {} %}
+  <div class="mt-2 d-flex flex-wrap gap-2">
+    <span class="badge text-bg-primary">
+      Fiscalizaciones: {{ cnt.fiscalizaciones or 0 }}
+    </span>
+    <span class="badge text-bg-warning text-dark">
+      Proc. sancionatorios activos: {{ cnt.sancionatorios_activos or 0 }}
+    </span>
+    <span class="badge text-bg-danger">
+      Sanciones firmes: {{ cnt.sanciones_firmes or 0 }}
+    </span>
+  </div>
+
+  {# Detalles colapsables (muestras) #}
+  {% set m = _snifa.muestras or {} %}
+  <div class="mt-2 d-flex flex-wrap gap-2">
+    {% if m.fiscalizaciones and m.fiscalizaciones|length > 0 %}
+      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#snifaFis">Ver fiscalizaciones</button>
+    {% endif %}
+    {% if m.sancionatorios and m.sancionatorios|length > 0 %}
+      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#snifaSan">Ver proc. sancionatorios</button>
+    {% endif %}
+    {% if m.sanciones_firmes and m.sanciones_firmes|length > 0 %}
+      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#snifaFirmes">Ver sanciones firmes</button>
+    {% endif %}
+  </div>
+
+  {% if m.fiscalizaciones and m.fiscalizaciones|length > 0 %}
+  <div id="snifaFis" class="collapse mt-2">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr><th>Fecha</th><th>RUT</th><th>Razón social</th><th>Unidad</th><th>Comuna</th><th>Región</th><th>Estado</th><th>Código</th></tr>
+        </thead>
+        <tbody>
+          {% for r in m.fiscalizaciones %}
+          <tr>
+            <td>{{ r.fecha or "—" }}</td>
+            <td>{{ r.rut or rut }}</td>
+            <td>{{ r.razon_social or perfil.razon_social }}</td>
+            <td>{{ r.unidad or "—" }}</td>
+            <td>{{ r.comuna or "—" }}</td>
+            <td>{{ r.region or "—" }}</td>
+            <td>{{ r.estado or "—" }}</td>
+            <td>{{ r.codigo or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
   {% endif %}
+
+  {% if m.sancionatorios and m.sancionatorios|length > 0 %}
+  <div id="snifaSan" class="collapse mt-2">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr><th>Fecha</th><th>RUT</th><th>Razón social</th><th>Unidad</th><th>Comuna</th><th>Región</th><th>Estado</th><th>Código</th></tr>
+        </thead>
+        <tbody>
+          {% for r in m.sancionatorios %}
+          <tr>
+            <td>{{ r.fecha or "—" }}</td>
+            <td>{{ r.rut or rut }}</td>
+            <td>{{ r.razon_social or perfil.razon_social }}</td>
+            <td>{{ r.unidad or "—" }}</td>
+            <td>{{ r.comuna or "—" }}</td>
+            <td>{{ r.region or "—" }}</td>
+            <td>{{ r.estado or "—" }}</td>
+            <td>{{ r.codigo or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if m.sanciones_firmes and m.sanciones_firmes|length > 0 %}
+  <div id="snifaFirmes" class="collapse mt-2">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr><th>Fecha</th><th>RUT</th><th>Razón social</th><th>Unidad</th><th>Comuna</th><th>Región</th><th>Estado</th><th>Código</th></tr>
+        </thead>
+        <tbody>
+          {% for r in m.sanciones_firmes %}
+          <tr>
+            <td>{{ r.fecha or "—" }}</td>
+            <td>{{ r.rut or rut }}</td>
+            <td>{{ r.razon_social or perfil.razon_social }}</td>
+            <td>{{ r.unidad or "—" }}</td>
+            <td>{{ r.comuna or "—" }}</td>
+            <td>{{ r.region or "—" }}</td>
+            <td>{{ r.estado or "—" }}</td>
+            <td>{{ r.codigo or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
 
   {# ====== MERCADO PÚBLICO (card única, con sellos adentro) ====== #}
   <div class="card mb-4">

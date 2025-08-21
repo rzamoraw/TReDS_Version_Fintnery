@@ -5,6 +5,7 @@ from models import FacturaDB, EsgCertificacion, PagadorProfile, OfertaFinanciami
 from models import ESGAssessment, ESGAnswer, ESGCriterion
 from services.connectors.esg_certificaciones import get_esg_payload
 
+
 # ——— Helper NUEVO: mapea tu modelo EsgCertificacion al formato del panel ESG ———
 def _map_certs_for_esg(certs):
     out = []

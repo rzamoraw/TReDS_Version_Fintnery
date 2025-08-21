@@ -17,7 +17,6 @@ from routers.marketplace import router as marketplace_router
 from routers.admin import router as admin_router
 from routers.configuracion import router as configuracion_router
 from routers.middle_office import router as middle_office_router
-from routers.pagador_esgcert import router as pagador_esg_router
 from routers import esg
 
 # 🔐 Cargar variables de entorno
